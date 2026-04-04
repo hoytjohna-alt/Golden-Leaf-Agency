@@ -1,4 +1,9 @@
-const APP_CONFIG = window.GOLDEN_LEAF_CONFIG || {};
+import { createClient } from "@supabase/supabase-js";
+
+const APP_CONFIG = {
+  supabaseUrl: import.meta.env.VITE_SUPABASE_URL || "",
+  supabaseAnonKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ""
+};
 const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
 
 const seedSettings = {
@@ -81,7 +86,7 @@ async function init() {
     return;
   }
 
-  state.supabase = window.supabase.createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
+  state.supabase = createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
