@@ -2,7 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 
 const APP_CONFIG = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || "",
-  supabaseAnonKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ""
+  supabaseAnonKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
+  appUrl: import.meta.env.VITE_APP_URL || ""
 };
 const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
 
@@ -414,6 +415,14 @@ function getAssignableProfiles() {
   return state.profiles.filter((item) => item.active);
 }
 
+function getVisibleManagedProfiles() {
+  return state.profiles.filter((item) => item.active);
+}
+
+function getRemovedProfiles() {
+  return state.profiles.filter((item) => !item.active);
+}
+
 function getSelectedOpportunitySet() {
   return new Set(state.ui.selectedOpportunityIds);
 }
@@ -552,6 +561,8 @@ function render() {
   const timeframeRows = filterRowsByTimeframe(allRows);
   const listRows = getFilteredOpportunityList(allRows);
   const assignableProfiles = getAssignableProfiles();
+  const visibleManagedProfiles = getVisibleManagedProfiles();
+  const removedProfiles = getRemovedProfiles();
   const summary = summarize(timeframeRows);
   const scorecards = getRepScorecards(timeframeRows);
   const roiRows = getRoiRows(timeframeRows);
@@ -613,7 +624,7 @@ function render() {
                 Rep
                 <select id="repFilterSelect">
                   <option value="All">All reps</option>
-                  ${state.profiles.map((profile) => `<option value="${profile.id}" ${state.ui.repFilter === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
+                  ${visibleManagedProfiles.map((profile) => `<option value="${profile.id}" ${state.ui.repFilter === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
                 </select>
               </label>
             ` : ""}
@@ -845,10 +856,11 @@ function render() {
                     <th>Role</th>
                     <th>Status</th>
                     <th>Assigned Leads</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${state.profiles.map((profile) => `
+                  ${visibleManagedProfiles.map((profile) => `
                     <tr>
                       <td><input data-profile-name="${profile.id}" value="${escapeHtml(profile.full_name)}" /></td>
                       <td>${escapeHtml(profile.email || "")}</td>
@@ -865,12 +877,42 @@ function render() {
                         </select>
                       </td>
                       <td>${getAssignedLeadCount(profile.id)} leads</td>
+                      <td>
+                        ${profile.id === state.profile.id ? '<span class="subtle">Current admin</span>' : '<button class="button button-ghost" type="button" data-remove-user="' + profile.id + '">Remove</button>'}
+                      </td>
                     </tr>
                   `).join("")}
                 </tbody>
               </table>
             </div>
             <p class="notice">Invite emails create rep accounts using Supabase email sign-in. Deactivate only after their assigned leads have been reassigned.</p>
+            ${removedProfiles.length ? `
+              <div class="archived-users">
+                <h4>Removed Users</h4>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Assigned Leads</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${removedProfiles.map((profile) => `
+                        <tr>
+                          <td>${escapeHtml(profile.full_name)}</td>
+                          <td>${escapeHtml(profile.email || "")}</td>
+                          <td>${getAssignedLeadCount(profile.id)} leads</td>
+                          <td><button class="button button-ghost" type="button" data-restore-user="${profile.id}">Restore</button></td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ` : ""}
           </article>
           <article class="table-card">
             <div class="panel-header"><h3>Carrier Commission Table</h3></div>
@@ -1514,6 +1556,30 @@ function bindAppEvents() {
     });
   });
 
+  document.querySelectorAll("[data-remove-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await removeUserFromApp(button.dataset.removeUser);
+      } catch (error) {
+        state.ui.error = error.message || "Could not remove that user.";
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-restore-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await persistProfile(button.dataset.restoreUser, { active: true });
+        state.ui.notice = "User restored.";
+        render();
+      } catch (error) {
+        state.ui.error = error.message || "Could not restore that user.";
+        render();
+      }
+    });
+  });
+
   const inviteRepForm = document.getElementById("inviteRepForm");
   if (inviteRepForm) {
     inviteRepForm.addEventListener("submit", async (event) => {
@@ -1678,6 +1744,13 @@ async function sendRepInvite({ email, fullName }) {
     return;
   }
 
+  const redirectUrl = APP_CONFIG.appUrl || window.location.origin;
+  if (!APP_CONFIG.appUrl && window.location.hostname === "localhost") {
+    state.ui.error = "Set VITE_APP_URL to your live site URL before sending invites from local development.";
+    render();
+    return;
+  }
+
   const inviteClient = createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
     auth: {
       persistSession: false,
@@ -1690,7 +1763,7 @@ async function sendRepInvite({ email, fullName }) {
     email,
     options: {
       shouldCreateUser: true,
-      emailRedirectTo: window.location.origin,
+      emailRedirectTo: redirectUrl,
       data: {
         full_name: fullName,
         role: "rep"
@@ -1703,6 +1776,32 @@ async function sendRepInvite({ email, fullName }) {
   }
 
   state.ui.error = "";
-  state.ui.notice = `Invite sent to ${email}. Once the rep activates, they will appear in the user list as a rep.`;
+  state.ui.notice = `Invite sent to ${email}. They should confirm using the link that points to ${redirectUrl}.`;
+  render();
+}
+
+async function removeUserFromApp(profileId) {
+  const targetProfile = state.profiles.find((item) => item.id === profileId);
+  if (!targetProfile) {
+    state.ui.error = "That user could not be found.";
+    render();
+    return;
+  }
+  if (profileId === state.profile.id) {
+    state.ui.error = "You cannot remove your own admin account.";
+    render();
+    return;
+  }
+  const leadCount = getAssignedLeadCount(profileId);
+  if (leadCount > 0) {
+    state.ui.error = `Reassign ${leadCount} lead(s) from ${targetProfile.full_name} before removing them.`;
+    render();
+    return;
+  }
+  if (!window.confirm(`Remove ${targetProfile.full_name} from the app? They will lose access and move to the removed-users list.`)) {
+    return;
+  }
+  await persistProfile(profileId, { active: false });
+  state.ui.notice = `${targetProfile.full_name} was removed from the active app roster.`;
   render();
 }

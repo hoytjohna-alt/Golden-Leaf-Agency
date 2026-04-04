@@ -376,6 +376,16 @@ main {
   align-items: end;
 }
 
+.archived-users {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(24, 48, 40, 0.08);
+}
+
+.archived-users h4 {
+  margin: 0 0 12px;
+}
+
 input,
 select,
 textarea {
