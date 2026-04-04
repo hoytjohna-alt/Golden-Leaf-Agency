@@ -68,8 +68,14 @@ const state = {
     notice: "",
     timeframe: "all",
     search: "",
+    repFilter: "All",
+    sourceFilter: "All",
     statusFilter: "All",
-    activeOpportunityId: null
+    dateFrom: "",
+    dateTo: "",
+    activeOpportunityId: null,
+    bulkAssignUserId: "",
+    selectedOpportunityIds: []
   }
 };
 
@@ -127,6 +133,15 @@ async function loadWorkspace() {
     const profile = await fetchProfile(state.session.user.id);
     state.profile = profile;
 
+    if (!profile.active) {
+      state.profiles = [profile];
+      state.opportunities = [];
+      state.coachingNotes = [];
+      state.ui.loading = false;
+      render();
+      return;
+    }
+
     const [settings, opportunities, coachingNotes, profiles] = await Promise.all([
       fetchSettings(),
       fetchOpportunities(),
@@ -138,6 +153,7 @@ async function loadWorkspace() {
     state.opportunities = opportunities;
     state.coachingNotes = coachingNotes;
     state.profiles = profiles;
+    state.ui.selectedOpportunityIds = [];
     state.ui.loading = false;
     render();
   } catch (error) {
@@ -150,6 +166,10 @@ async function loadWorkspace() {
 
 function isAdmin() {
   return state.profile?.role === "admin";
+}
+
+function isInactiveUser() {
+  return Boolean(state.profile && !state.profile.active);
 }
 
 async function fetchProfile(userId) {
@@ -373,7 +393,11 @@ function filterRowsByTimeframe(rows) {
 function getFilteredOpportunityList(rows) {
   const search = state.ui.search.trim().toLowerCase();
   return rows.filter((row) => {
+    const repMatch = state.ui.repFilter === "All" || row.assignedUserId === state.ui.repFilter;
+    const sourceMatch = state.ui.sourceFilter === "All" || row.leadSource === state.ui.sourceFilter;
     const statusMatch = state.ui.statusFilter === "All" || row.status === state.ui.statusFilter;
+    const fromMatch = !state.ui.dateFrom || row.dateReceived >= state.ui.dateFrom;
+    const toMatch = !state.ui.dateTo || row.dateReceived <= state.ui.dateTo;
     const searchMatch = !search || [
       row.leadNumber,
       row.businessName,
@@ -382,8 +406,20 @@ function getFilteredOpportunityList(rows) {
       row.productFocus,
       row.carrier
     ].join(" ").toLowerCase().includes(search);
-    return statusMatch && searchMatch;
+    return repMatch && sourceMatch && statusMatch && fromMatch && toMatch && searchMatch;
   });
+}
+
+function getAssignableProfiles() {
+  return state.profiles.filter((item) => item.active);
+}
+
+function getSelectedOpportunitySet() {
+  return new Set(state.ui.selectedOpportunityIds);
+}
+
+function getAssignedLeadCount(profileId) {
+  return state.opportunities.filter((item) => item.assignedUserId === profileId).length;
 }
 
 function summarize(rows) {
@@ -506,9 +542,16 @@ function render() {
     return;
   }
 
+  if (isInactiveUser()) {
+    appEl.innerHTML = renderInactiveUser();
+    bindShellEvents();
+    return;
+  }
+
   const allRows = getVisibleOpportunities();
   const timeframeRows = filterRowsByTimeframe(allRows);
   const listRows = getFilteredOpportunityList(allRows);
+  const assignableProfiles = getAssignableProfiles();
   const summary = summarize(timeframeRows);
   const scorecards = getRepScorecards(timeframeRows);
   const roiRows = getRoiRows(timeframeRows);
@@ -558,6 +601,71 @@ function render() {
           <p>${isAdmin() ? "Admin can assign, edit, and inspect every producer pipeline." : "You can fully manage every lead assigned to you."}</p>
         </div>
       </div>
+      <div class="table-card filter-card">
+        <div class="toolbar">
+          <div class="toolbar-grid">
+            <label>
+              Search
+              <input id="searchInput" value="${escapeHtml(state.ui.search)}" placeholder="Business, rep, lead number" />
+            </label>
+            ${isAdmin() ? `
+              <label>
+                Rep
+                <select id="repFilterSelect">
+                  <option value="All">All reps</option>
+                  ${state.profiles.map((profile) => `<option value="${profile.id}" ${state.ui.repFilter === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
+                </select>
+              </label>
+            ` : ""}
+            <label>
+              Lead Source
+              <select id="sourceFilterSelect">
+                <option value="All">All sources</option>
+                ${state.setup.leadSources.map((source) => `<option value="${escapeHtml(source)}" ${state.ui.sourceFilter === source ? "selected" : ""}>${escapeHtml(source)}</option>`).join("")}
+              </select>
+            </label>
+            <label>
+              Status
+              <select id="statusFilterSelect">
+                <option value="All">All statuses</option>
+                ${state.setup.statuses.map((status) => `<option value="${escapeHtml(status)}" ${state.ui.statusFilter === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+              </select>
+            </label>
+            <label>
+              From
+              <input id="dateFromInput" type="date" value="${escapeHtml(state.ui.dateFrom)}" />
+            </label>
+            <label>
+              To
+              <input id="dateToInput" type="date" value="${escapeHtml(state.ui.dateTo)}" />
+            </label>
+          </div>
+          <div class="toolbar-group">
+            <button class="button button-ghost" id="clearFiltersButton" type="button">Clear Filters</button>
+            <div class="subtle">${listRows.length} visible</div>
+          </div>
+        </div>
+        ${isAdmin() ? `
+          <div class="bulk-card">
+            <div>
+              <strong>${state.ui.selectedOpportunityIds.length} selected</strong>
+              <div class="subtle">Use filters, select leads, then bulk reassign them.</div>
+            </div>
+            <div class="toolbar-group">
+              <button class="button button-ghost" id="selectVisibleButton" type="button">Select Visible</button>
+              <button class="button button-ghost" id="clearSelectionButton" type="button">Clear Selection</button>
+              <label class="compact-field">
+                Reassign To
+                <select id="bulkAssignUserSelect">
+                  <option value="">Choose rep</option>
+                  ${assignableProfiles.map((profile) => `<option value="${profile.id}" ${state.ui.bulkAssignUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
+                </select>
+              </label>
+              <button class="button button-primary" id="bulkAssignButton" type="button">Bulk Reassign</button>
+            </div>
+          </div>
+        ` : ""}
+      </div>
       <div class="two-column">
         <div class="form-card">
           <div class="panel-header">
@@ -570,24 +678,8 @@ function render() {
           ${renderOpportunityForm(activeOpportunity)}
         </div>
         <div class="table-card">
-          <div class="toolbar">
-            <div class="toolbar-group">
-              <label>
-                Search
-                <input id="searchInput" value="${escapeHtml(state.ui.search)}" placeholder="Business, rep, lead number" />
-              </label>
-              <label>
-                Status
-                <select id="statusFilterSelect">
-                  <option>All</option>
-                  ${state.setup.statuses.map((status) => `<option ${state.ui.statusFilter === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
-                </select>
-              </label>
-            </div>
-            <div class="subtle">${listRows.length} visible</div>
-          </div>
           <div class="table-wrap">
-            ${listRows.length ? renderOpportunityTable(listRows) : document.getElementById("emptyStateTemplate").innerHTML}
+            ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
           </div>
         </div>
       </div>
@@ -727,7 +819,23 @@ function render() {
         </div>
         <div class="two-column">
           <article class="table-card">
-            <div class="panel-header"><h3>Users</h3></div>
+            <div class="panel-header">
+              <div>
+                <h3>Users</h3>
+                <p>Invite reps directly from the app, then manage role and status once they activate.</p>
+              </div>
+            </div>
+            <form id="inviteRepForm" class="invite-form">
+              <label>
+                Rep Name
+                <input name="fullName" placeholder="Producer name" required />
+              </label>
+              <label>
+                Rep Email
+                <input name="email" type="email" placeholder="rep@agency.com" required />
+              </label>
+              <button class="button button-primary" type="submit">Send Invite Email</button>
+            </form>
             <div class="table-wrap">
               <table>
                 <thead>
@@ -736,6 +844,7 @@ function render() {
                     <th>Email</th>
                     <th>Role</th>
                     <th>Status</th>
+                    <th>Assigned Leads</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -755,12 +864,13 @@ function render() {
                           <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
                         </select>
                       </td>
+                      <td>${getAssignedLeadCount(profile.id)} leads</td>
                     </tr>
                   `).join("")}
                 </tbody>
               </table>
             </div>
-            <p class="notice">Create or invite users in Supabase Auth. Their profile row is created automatically by the SQL trigger, and you can manage role or active status here.</p>
+            <p class="notice">Invite emails create rep accounts using Supabase email sign-in. Deactivate only after their assigned leads have been reassigned.</p>
           </article>
           <article class="table-card">
             <div class="panel-header"><h3>Carrier Commission Table</h3></div>
@@ -805,7 +915,7 @@ function renderHeroActions() {
     <div class="auth-summary">
       <div>
         <strong>${escapeHtml(state.profile?.full_name || state.session.user.email || "User")}</strong>
-        <div class="subtle">${isAdmin() ? "Admin / owner view" : "Producer view"}</div>
+        <div class="subtle">${isInactiveUser() ? "Inactive account" : isAdmin() ? "Admin / owner view" : "Producer view"}</div>
       </div>
       <button id="signOutButton" class="button button-ghost" type="button">Sign Out</button>
     </div>
@@ -815,6 +925,9 @@ function renderHeroActions() {
 function renderTopNav() {
   if (!SUPABASE_READY || !state.session) {
     return `<a href="#app">Access</a>`;
+  }
+  if (isInactiveUser()) {
+    return `<a href="#app">Account Status</a>`;
   }
   return `
     <a href="#dashboard">Dashboard</a>
@@ -841,7 +954,7 @@ function renderSetupRequired() {
         </article>
         <article class="table-card">
           <h3>2. Add Config</h3>
-          <p class="mini-note">Copy <code>supabase-config.example.js</code> to <code>supabase-config.js</code> and paste the project URL and anon key.</p>
+          <p class="mini-note">Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> in your environment variables.</p>
         </article>
         <article class="table-card">
           <h3>3. Invite Reps</h3>
@@ -885,6 +998,17 @@ function renderLogin() {
             <li>All producer activity rolls up live into the owner dashboard.</li>
           </ul>
         </article>
+      </div>
+    </section>
+  `;
+}
+
+function renderInactiveUser() {
+  return `
+    <section class="panel">
+      <div class="empty-state">
+        <h3>Account Inactive</h3>
+        <p>Your account has been deactivated by the admin team. Contact the agency owner if you need access restored.</p>
       </div>
     </section>
   `;
@@ -977,11 +1101,12 @@ function renderOpportunityForm(row) {
   `;
 }
 
-function renderOpportunityTable(rows) {
+function renderOpportunityTable(rows, selectedRows) {
   return `
     <table>
       <thead>
         <tr>
+          ${isAdmin() ? "<th>Select</th>" : ""}
           <th>Lead #</th>
           <th>Business</th>
           <th>Rep</th>
@@ -994,6 +1119,15 @@ function renderOpportunityTable(rows) {
       <tbody>
         ${rows.map((row) => `
           <tr data-select-opportunity="${escapeHtml(row.id)}">
+            ${isAdmin() ? `
+              <td>
+                <input
+                  type="checkbox"
+                  data-select-toggle="${escapeHtml(row.id)}"
+                  ${selectedRows.has(row.id) ? "checked" : ""}
+                />
+              </td>
+            ` : ""}
             <td>${escapeHtml(row.leadNumber)}</td>
             <td>
               <strong>${escapeHtml(row.businessName)}</strong>
@@ -1179,12 +1313,103 @@ function bindAppEvents() {
     });
   }
 
+  const repFilterSelect = document.getElementById("repFilterSelect");
+  if (repFilterSelect) {
+    repFilterSelect.addEventListener("change", (event) => {
+      state.ui.repFilter = event.target.value;
+      render();
+    });
+  }
+
+  const sourceFilterSelect = document.getElementById("sourceFilterSelect");
+  if (sourceFilterSelect) {
+    sourceFilterSelect.addEventListener("change", (event) => {
+      state.ui.sourceFilter = event.target.value;
+      render();
+    });
+  }
+
+  const dateFromInput = document.getElementById("dateFromInput");
+  if (dateFromInput) {
+    dateFromInput.addEventListener("change", (event) => {
+      state.ui.dateFrom = event.target.value;
+      render();
+    });
+  }
+
+  const dateToInput = document.getElementById("dateToInput");
+  if (dateToInput) {
+    dateToInput.addEventListener("change", (event) => {
+      state.ui.dateTo = event.target.value;
+      render();
+    });
+  }
+
+  const clearFiltersButton = document.getElementById("clearFiltersButton");
+  if (clearFiltersButton) {
+    clearFiltersButton.addEventListener("click", () => {
+      state.ui.search = "";
+      state.ui.repFilter = "All";
+      state.ui.sourceFilter = "All";
+      state.ui.statusFilter = "All";
+      state.ui.dateFrom = "";
+      state.ui.dateTo = "";
+      render();
+    });
+  }
+
   document.querySelectorAll("[data-select-opportunity]").forEach((row) => {
     row.addEventListener("click", () => {
       state.ui.activeOpportunityId = row.dataset.selectOpportunity;
       render();
     });
   });
+
+  document.querySelectorAll("[data-select-toggle]").forEach((checkbox) => {
+    checkbox.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    checkbox.addEventListener("change", (event) => {
+      const id = event.target.dataset.selectToggle;
+      toggleOpportunitySelection(id, event.target.checked);
+    });
+  });
+
+  const selectVisibleButton = document.getElementById("selectVisibleButton");
+  if (selectVisibleButton) {
+    selectVisibleButton.addEventListener("click", () => {
+      const visibleIds = getFilteredOpportunityList(getVisibleOpportunities()).map((row) => row.id);
+      state.ui.selectedOpportunityIds = [...new Set([...state.ui.selectedOpportunityIds, ...visibleIds])];
+      render();
+    });
+  }
+
+  const clearSelectionButton = document.getElementById("clearSelectionButton");
+  if (clearSelectionButton) {
+    clearSelectionButton.addEventListener("click", () => {
+      state.ui.selectedOpportunityIds = [];
+      render();
+    });
+  }
+
+  const bulkAssignUserSelect = document.getElementById("bulkAssignUserSelect");
+  if (bulkAssignUserSelect) {
+    bulkAssignUserSelect.addEventListener("change", (event) => {
+      state.ui.bulkAssignUserId = event.target.value;
+    });
+  }
+
+  const bulkAssignButton = document.getElementById("bulkAssignButton");
+  if (bulkAssignButton) {
+    bulkAssignButton.addEventListener("click", async () => {
+      try {
+        await bulkAssignSelected();
+      } catch (error) {
+        state.ui.error = error.message || "Could not bulk reassign those leads.";
+        render();
+      }
+    });
+  }
 
   const newOpportunityButton = document.getElementById("newOpportunityButton");
   if (newOpportunityButton) {
@@ -1257,6 +1482,11 @@ function bindAppEvents() {
 
   document.querySelectorAll("[data-profile-role]").forEach((input) => {
     input.addEventListener("change", async (event) => {
+      if (event.target.dataset.profileRole === state.profile.id && event.target.value !== "admin") {
+        state.ui.error = "You cannot remove your own admin access.";
+        render();
+        return;
+      }
       await persistProfile(event.target.dataset.profileRole, {
         role: event.target.value
       });
@@ -1265,11 +1495,41 @@ function bindAppEvents() {
 
   document.querySelectorAll("[data-profile-active]").forEach((input) => {
     input.addEventListener("change", async (event) => {
+      const nextActive = event.target.value === "true";
+      const profileId = event.target.dataset.profileActive;
+      const targetProfile = state.profiles.find((item) => item.id === profileId);
+      if (!nextActive && profileId === state.profile.id) {
+        state.ui.error = "You cannot deactivate your own admin account.";
+        render();
+        return;
+      }
+      if (!nextActive && getAssignedLeadCount(profileId) > 0) {
+        state.ui.error = `Reassign ${getAssignedLeadCount(profileId)} lead(s) from ${targetProfile?.full_name || "this rep"} before deactivating them.`;
+        render();
+        return;
+      }
       await persistProfile(event.target.dataset.profileActive, {
-        active: event.target.value === "true"
+        active: nextActive
       });
     });
   });
+
+  const inviteRepForm = document.getElementById("inviteRepForm");
+  if (inviteRepForm) {
+    inviteRepForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(inviteRepForm);
+      try {
+        await sendRepInvite({
+          email: String(formData.get("email") || "").trim(),
+          fullName: String(formData.get("fullName") || "").trim()
+        });
+      } catch (error) {
+        state.ui.error = error.message || "Could not send the rep invite.";
+        render();
+      }
+    });
+  }
 
   document.querySelectorAll("[data-carrier-name]").forEach((input) => {
     input.addEventListener("change", async (event) => {
@@ -1363,4 +1623,86 @@ async function persistProfile(profileId, changes) {
     state.ui.error = error.message || "Could not update that user.";
     render();
   }
+}
+
+function toggleOpportunitySelection(id, checked) {
+  if (checked) {
+    state.ui.selectedOpportunityIds = [...new Set([...state.ui.selectedOpportunityIds, id])];
+  } else {
+    state.ui.selectedOpportunityIds = state.ui.selectedOpportunityIds.filter((item) => item !== id);
+  }
+  render();
+}
+
+async function bulkAssignSelected() {
+  if (!state.ui.selectedOpportunityIds.length) {
+    state.ui.error = "Select at least one lead first.";
+    render();
+    return;
+  }
+  if (!state.ui.bulkAssignUserId) {
+    state.ui.error = "Choose a rep for the reassignment.";
+    render();
+    return;
+  }
+
+  const targetProfile = state.profiles.find((item) => item.id === state.ui.bulkAssignUserId);
+  if (!targetProfile) {
+    state.ui.error = "That rep could not be found.";
+    render();
+    return;
+  }
+
+  const { error } = await state.supabase
+    .from("opportunities")
+    .update({
+      assigned_user_id: targetProfile.id,
+      assigned_rep_name: targetProfile.full_name
+    })
+    .in("id", state.ui.selectedOpportunityIds);
+
+  if (error) {
+    throw error;
+  }
+
+  state.ui.notice = `${state.ui.selectedOpportunityIds.length} lead(s) reassigned to ${targetProfile.full_name}.`;
+  state.ui.bulkAssignUserId = "";
+  state.ui.selectedOpportunityIds = [];
+  await loadWorkspace();
+}
+
+async function sendRepInvite({ email, fullName }) {
+  if (!email || !fullName) {
+    state.ui.error = "Enter both the rep's name and email.";
+    render();
+    return;
+  }
+
+  const inviteClient = createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+
+  const { error } = await inviteClient.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: window.location.origin,
+      data: {
+        full_name: fullName,
+        role: "rep"
+      }
+    }
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  state.ui.error = "";
+  state.ui.notice = `Invite sent to ${email}. Once the rep activates, they will appear in the user list as a rep.`;
+  render();
 }

@@ -342,6 +342,40 @@ main {
   flex-wrap: wrap;
 }
 
+.toolbar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+  flex: 1;
+}
+
+.filter-card,
+.bulk-card,
+.invite-form {
+  margin-bottom: 16px;
+}
+
+.bulk-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid rgba(24, 48, 40, 0.08);
+}
+
+.compact-field {
+  min-width: 180px;
+}
+
+.invite-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
 input,
 select,
 textarea {
@@ -509,6 +543,11 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .toolbar-grid,
+  .invite-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .two-column,
   .hero,
   .auth-panel {
@@ -532,7 +571,9 @@ tbody tr:hover {
   .three-column,
   .four-column,
   .checklist-grid,
-  .form-grid {
+  .form-grid,
+  .toolbar-grid,
+  .invite-form {
     grid-template-columns: 1fr;
   }
 
