@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: golden-leaf-agency-hq
+    env: static
+    staticPublishPath: .

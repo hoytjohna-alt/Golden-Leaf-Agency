@@ -1,0 +1,1361 @@
+const APP_CONFIG = window.GOLDEN_LEAF_CONFIG || {};
+const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
+
+const seedSettings = {
+  assumptions: {
+    averageCommissionPct: 0.12,
+    sameDayWorkedTargetPct: 0.9,
+    contactRateTargetPct: 0.5,
+    quoteRateTargetPct: 0.2,
+    quoteToBindTargetPct: 0.25,
+    leadToBindTargetPct: 0.05,
+    crmComplianceTargetPct: 0.95,
+    followUpDueWindowDays: 3,
+    freshLeadWindowDays: 3
+  },
+  leadSources: [
+    "Purchased Leads",
+    "Warm Transfer",
+    "Referral",
+    "Website / Organic",
+    "Partner / Network",
+    "Recycled Lead",
+    "Self-Generated"
+  ],
+  statuses: [
+    "New Lead",
+    "Attempted",
+    "Contacted",
+    "Qualified",
+    "Quoted",
+    "Pending Decision",
+    "Bound",
+    "Lost",
+    "Nurture / Recycle"
+  ],
+  products: ["GL / BOP", "Workers Comp", "Package / Multi-Line"],
+  carriers: [
+    { name: "AmTrust", newPct: 0.16, renewalPct: 0.1, notes: "Typical" },
+    { name: "Berxi", newPct: 0.13, renewalPct: 0.13, notes: "Typical" },
+    { name: "Blitz", newPct: 0.125, renewalPct: 0.125, notes: "Typical" },
+    { name: "Chubb", newPct: 0.14, renewalPct: 0.12, notes: "Typical" },
+    { name: "Coterie", newPct: 0.12, renewalPct: 0.1, notes: "Typical" },
+    { name: "First", newPct: 0.16, renewalPct: 0.16, notes: "Typical" },
+    { name: "Hiscox", newPct: 0.14, renewalPct: 0.12, notes: "Typical" },
+    { name: "Pathpoint", newPct: 0.11, renewalPct: 0.11, notes: "Typical" },
+    { name: "Simply Business", newPct: 0.12, renewalPct: 0.12, notes: "Typical" },
+    { name: "THREE", newPct: 0.12, renewalPct: 0.12, notes: "Typical" }
+  ]
+};
+
+const state = {
+  supabase: null,
+  session: null,
+  profile: null,
+  setup: structuredClone(seedSettings),
+  profiles: [],
+  opportunities: [],
+  coachingNotes: [],
+  ui: {
+    loading: true,
+    authLoading: false,
+    error: "",
+    notice: "",
+    timeframe: "all",
+    search: "",
+    statusFilter: "All",
+    activeOpportunityId: null
+  }
+};
+
+const appEl = document.getElementById("app");
+const heroActionsEl = document.getElementById("heroActions");
+const topNavEl = document.getElementById("topNav");
+
+init();
+
+async function init() {
+  if (!SUPABASE_READY) {
+    state.ui.loading = false;
+    render();
+    return;
+  }
+
+  state.supabase = window.supabase.createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  });
+
+  state.supabase.auth.onAuthStateChange(async (_event, session) => {
+    state.session = session;
+    state.profile = null;
+    if (session?.user) {
+      await loadWorkspace();
+    } else {
+      state.ui.loading = false;
+      render();
+    }
+  });
+
+  const {
+    data: { session }
+  } = await state.supabase.auth.getSession();
+  state.session = session;
+  if (session?.user) {
+    await loadWorkspace();
+  } else {
+    state.ui.loading = false;
+    render();
+  }
+}
+
+async function loadWorkspace() {
+  try {
+    state.ui.loading = true;
+    state.ui.error = "";
+    state.ui.notice = "";
+    render();
+
+    const profile = await fetchProfile(state.session.user.id);
+    state.profile = profile;
+
+    const [settings, opportunities, coachingNotes, profiles] = await Promise.all([
+      fetchSettings(),
+      fetchOpportunities(),
+      fetchCoachingNotes(),
+      isAdmin() ? fetchProfiles() : Promise.resolve([profile])
+    ]);
+
+    state.setup = settings;
+    state.opportunities = opportunities;
+    state.coachingNotes = coachingNotes;
+    state.profiles = profiles;
+    state.ui.loading = false;
+    render();
+  } catch (error) {
+    console.error(error);
+    state.ui.loading = false;
+    state.ui.error = error.message || "Could not load the workspace.";
+    render();
+  }
+}
+
+function isAdmin() {
+  return state.profile?.role === "admin";
+}
+
+async function fetchProfile(userId) {
+  const { data, error } = await state.supabase
+    .from("profiles")
+    .select("id, email, full_name, role, active")
+    .eq("id", userId)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function fetchProfiles() {
+  const { data, error } = await state.supabase
+    .from("profiles")
+    .select("id, email, full_name, role, active")
+    .order("full_name", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchSettings() {
+  const { data, error } = await state.supabase
+    .from("app_settings")
+    .select("assumptions, lead_sources, statuses, products, carriers")
+    .eq("singleton_key", "default")
+    .single();
+  if (error) throw error;
+  return {
+    assumptions: { ...seedSettings.assumptions, ...(data.assumptions || {}) },
+    leadSources: data.lead_sources?.length ? data.lead_sources : seedSettings.leadSources,
+    statuses: data.statuses?.length ? data.statuses : seedSettings.statuses,
+    products: data.products?.length ? data.products : seedSettings.products,
+    carriers: data.carriers?.length ? data.carriers : seedSettings.carriers
+  };
+}
+
+async function fetchOpportunities() {
+  const { data, error } = await state.supabase
+    .from("opportunities")
+    .select("*")
+    .order("date_received", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapOpportunityFromDb);
+}
+
+async function fetchCoachingNotes() {
+  const { data, error } = await state.supabase
+    .from("coaching_notes")
+    .select("*")
+    .order("week_start", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+function mapOpportunityFromDb(row) {
+  return {
+    id: row.id,
+    leadNumber: row.lead_number,
+    assignedUserId: row.assigned_user_id,
+    assignedRepName: row.assigned_rep_name,
+    dateReceived: row.date_received,
+    leadSource: row.lead_source,
+    businessName: row.business_name,
+    targetNiche: row.target_niche,
+    productFocus: row.product_focus,
+    carrier: row.carrier,
+    policyType: row.policy_type,
+    leadCost: Number(row.lead_cost || 0),
+    premiumQuoted: Number(row.premium_quoted || 0),
+    premiumBound: Number(row.premium_bound || 0),
+    status: row.status,
+    firstAttemptDate: row.first_attempt_date || "",
+    lastActivityDate: row.last_activity_date || "",
+    nextFollowUpDate: row.next_follow_up_date || "",
+    notes: row.notes || ""
+  };
+}
+
+function mapOpportunityToDb(formData) {
+  const assignedProfile = state.profiles.find((item) => item.id === formData.assignedUserId) || state.profile;
+  return {
+    id: formData.id || undefined,
+    lead_number: formData.leadNumber || generateLeadNumber(formData.dateReceived),
+    assigned_user_id: assignedProfile.id,
+    assigned_rep_name: assignedProfile.full_name,
+    date_received: formData.dateReceived,
+    lead_source: formData.leadSource,
+    business_name: formData.businessName,
+    target_niche: formData.targetNiche,
+    product_focus: formData.productFocus,
+    carrier: formData.carrier,
+    policy_type: formData.policyType,
+    lead_cost: Number(formData.leadCost || 0),
+    premium_quoted: Number(formData.premiumQuoted || 0),
+    premium_bound: Number(formData.premiumBound || 0),
+    status: formData.status,
+    first_attempt_date: formData.firstAttemptDate || null,
+    last_activity_date: formData.lastActivityDate || null,
+    next_follow_up_date: formData.nextFollowUpDate || null,
+    notes: formData.notes || ""
+  };
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function startOfWeek(dateValue) {
+  const date = parseDate(dateValue);
+  if (!date) return "";
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayDiff(startValue, endValue) {
+  const start = parseDate(startValue);
+  const end = parseDate(endValue);
+  if (!start || !end) return null;
+  return Math.round((end - start) / 86400000);
+}
+
+function getCarrierPct(carrierName, policyType) {
+  const carrier = state.setup.carriers.find((item) => item.name === carrierName);
+  if (!carrier) return Number(state.setup.assumptions.averageCommissionPct || 0);
+  return Number(policyType === "Renewal" ? carrier.renewalPct : carrier.newPct);
+}
+
+function getRepPayoutPct(leadSource) {
+  return leadSource === "Self-Generated" ? 0.5 : 0.4;
+}
+
+function needsFollowUp(status) {
+  return [
+    "New Lead",
+    "Attempted",
+    "Contacted",
+    "Qualified",
+    "Quoted",
+    "Pending Decision",
+    "Nurture / Recycle"
+  ].includes(status);
+}
+
+function computeOpportunity(row) {
+  const contacted = ["Contacted", "Qualified", "Quoted", "Pending Decision", "Bound"].includes(row.status);
+  const quoted =
+    ["Quoted", "Pending Decision", "Bound"].includes(row.status) ||
+    (row.status === "Lost" && Number(row.premiumQuoted) > 0);
+  const bound = row.status === "Bound";
+  const lost = row.status === "Lost";
+  const closed = bound || lost;
+  const agencyCommPct = getCarrierPct(row.carrier, row.policyType);
+  const repPayoutPct = getRepPayoutPct(row.leadSource);
+  const actualAgencyComm = bound ? Number(row.premiumBound) * agencyCommPct : 0;
+  const potentialAgencyComm = quoted && !closed ? Number(row.premiumQuoted) * agencyCommPct : 0;
+  const actualRepPayout = actualAgencyComm * repPayoutPct;
+  const potentialRepPayout = potentialAgencyComm * repPayoutPct;
+  const followUpNeeded = needsFollowUp(row.status);
+  const followUpOverdue = Boolean(followUpNeeded && row.nextFollowUpDate && todayIso() > row.nextFollowUpDate);
+  const followUpBucket = !followUpNeeded
+    ? "Closed"
+    : !row.nextFollowUpDate
+      ? "No Follow-Up Date"
+      : todayIso() > row.nextFollowUpDate
+        ? "Overdue"
+        : dayDiff(todayIso(), row.nextFollowUpDate) <= 1
+          ? "Due Soon"
+          : "Future";
+
+  return {
+    ...row,
+    contacted,
+    quoted,
+    bound,
+    lost,
+    closed,
+    workedSameDay: Boolean(row.firstAttemptDate && row.firstAttemptDate === row.dateReceived),
+    followUpNeeded,
+    followUpOverdue,
+    agencyCommPct,
+    actualAgencyComm,
+    potentialAgencyComm,
+    repPayoutPct,
+    actualRepPayout,
+    potentialRepPayout,
+    ownerNetAgencyComm: actualAgencyComm - actualRepPayout,
+    daysOpen: dayDiff(row.dateReceived, todayIso()),
+    weekStart: startOfWeek(row.dateReceived),
+    month: row.dateReceived?.slice(0, 7) || "",
+    freshLead: dayDiff(row.dateReceived, todayIso()) <= Number(state.setup.assumptions.freshLeadWindowDays || 3),
+    followUpBucket
+  };
+}
+
+function getVisibleOpportunities() {
+  return state.opportunities.map(computeOpportunity);
+}
+
+function filterRowsByTimeframe(rows) {
+  if (state.ui.timeframe === "week") {
+    const currentWeek = startOfWeek(todayIso());
+    return rows.filter((row) => row.weekStart === currentWeek);
+  }
+  if (state.ui.timeframe === "month") {
+    const currentMonth = todayIso().slice(0, 7);
+    return rows.filter((row) => row.month === currentMonth);
+  }
+  return rows;
+}
+
+function getFilteredOpportunityList(rows) {
+  const search = state.ui.search.trim().toLowerCase();
+  return rows.filter((row) => {
+    const statusMatch = state.ui.statusFilter === "All" || row.status === state.ui.statusFilter;
+    const searchMatch = !search || [
+      row.leadNumber,
+      row.businessName,
+      row.assignedRepName,
+      row.leadSource,
+      row.productFocus,
+      row.carrier
+    ].join(" ").toLowerCase().includes(search);
+    return statusMatch && searchMatch;
+  });
+}
+
+function summarize(rows) {
+  return {
+    totalLeads: rows.length,
+    openLeads: rows.filter((row) => !row.closed).length,
+    overdueFollowUp: rows.filter((row) => row.followUpOverdue).length,
+    quotesInPipeline: rows.filter((row) => row.quoted && !row.closed).length,
+    binds: rows.filter((row) => row.bound).length,
+    boundPremium: sum(rows, "premiumBound"),
+    pipelineAgencyComm: sum(rows, "potentialAgencyComm"),
+    actualAgencyComm: sum(rows, "actualAgencyComm"),
+    ownerNetAgencyComm: sum(rows, "ownerNetAgencyComm")
+  };
+}
+
+function sum(rows, key) {
+  return rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+}
+
+function getRepScorecards(rows) {
+  const reps = isAdmin() ? state.profiles.filter((item) => item.role === "rep" || item.role === "admin") : [state.profile];
+  return reps.map((rep) => {
+    const repRows = rows.filter((row) => row.assignedUserId === rep.id);
+    const leads = repRows.length;
+    const quotes = repRows.filter((row) => row.quoted).length;
+    return {
+      id: rep.id,
+      name: rep.full_name,
+      leads,
+      binds: repRows.filter((row) => row.bound).length,
+      sameDayRate: leads ? repRows.filter((row) => row.workedSameDay).length / leads : 0,
+      contactRate: leads ? repRows.filter((row) => row.contacted).length / leads : 0,
+      quoteRate: leads ? quotes / leads : 0,
+      quoteToBindRate: quotes ? repRows.filter((row) => row.bound).length / quotes : 0,
+      actualAgencyComm: sum(repRows, "actualAgencyComm")
+    };
+  });
+}
+
+function getRoiRows(rows) {
+  return state.setup.leadSources.map((source) => {
+    const sourceRows = rows.filter((row) => row.leadSource === source);
+    const count = sourceRows.length;
+    const quotes = sourceRows.filter((row) => row.quoted).length;
+    return {
+      source,
+      count,
+      spend: sum(sourceRows, "leadCost"),
+      quoteRate: count ? quotes / count : 0,
+      bindRate: count ? sourceRows.filter((row) => row.bound).length / count : 0,
+      actualAgencyComm: sum(sourceRows, "actualAgencyComm")
+    };
+  });
+}
+
+function getCoachingRows(rows) {
+  const weekStart = startOfWeek(todayIso());
+  const reps = isAdmin() ? state.profiles.filter((item) => item.active) : [state.profile];
+  return reps.map((rep) => {
+    const repRows = rows.filter((row) => row.assignedUserId === rep.id && row.weekStart === weekStart);
+    const note = state.coachingNotes.find((item) => item.rep_user_id === rep.id && item.week_start === weekStart);
+    const leads = repRows.length;
+    return {
+      repId: rep.id,
+      repName: rep.full_name,
+      weekStart,
+      leads,
+      contactRate: leads ? repRows.filter((row) => row.contacted).length / leads : 0,
+      quotes: repRows.filter((row) => row.quoted).length,
+      binds: repRows.filter((row) => row.bound).length,
+      biggestGap: note?.biggest_gap || inferBiggestGap(repRows, leads),
+      behaviorToImprove: note?.behavior_to_improve || "",
+      actionCommitment: note?.action_commitment || "",
+      nextReviewNotes: note?.next_review_notes || ""
+    };
+  });
+}
+
+function inferBiggestGap(rows, leads) {
+  const assumptions = state.setup.assumptions;
+  const metrics = [
+    {
+      label: "Same-day work rate",
+      delta: (leads ? rows.filter((row) => row.workedSameDay).length / leads : 0) - Number(assumptions.sameDayWorkedTargetPct || 0)
+    },
+    {
+      label: "Contact rate",
+      delta: (leads ? rows.filter((row) => row.contacted).length / leads : 0) - Number(assumptions.contactRateTargetPct || 0)
+    },
+    {
+      label: "Quote rate",
+      delta: (leads ? rows.filter((row) => row.quoted).length / leads : 0) - Number(assumptions.quoteRateTargetPct || 0)
+    }
+  ];
+  metrics.sort((a, b) => a.delta - b.delta);
+  return metrics[0].label;
+}
+
+function render() {
+  heroActionsEl.innerHTML = renderHeroActions();
+  topNavEl.innerHTML = renderTopNav();
+
+  if (!SUPABASE_READY) {
+    appEl.innerHTML = renderSetupRequired();
+    bindShellEvents();
+    return;
+  }
+
+  if (state.ui.loading) {
+    appEl.innerHTML = `<section class="panel"><div class="empty-state"><h3>Loading workspace</h3><p>Connecting to the shared agency database.</p></div></section>`;
+    bindShellEvents();
+    return;
+  }
+
+  if (!state.session) {
+    appEl.innerHTML = renderLogin();
+    bindShellEvents();
+    bindAppEvents();
+    return;
+  }
+
+  const allRows = getVisibleOpportunities();
+  const timeframeRows = filterRowsByTimeframe(allRows);
+  const listRows = getFilteredOpportunityList(allRows);
+  const summary = summarize(timeframeRows);
+  const scorecards = getRepScorecards(timeframeRows);
+  const roiRows = getRoiRows(timeframeRows);
+  const coachingRows = getCoachingRows(allRows);
+  const activeOpportunity =
+    state.opportunities.find((item) => item.id === state.ui.activeOpportunityId) ||
+    blankOpportunity();
+
+  appEl.innerHTML = `
+    ${state.ui.error ? `<section class="panel"><p class="error-banner">${escapeHtml(state.ui.error)}</p></section>` : ""}
+    ${state.ui.notice ? `<section class="panel"><p class="notice-banner">${escapeHtml(state.ui.notice)}</p></section>` : ""}
+
+    <section class="panel" id="dashboard">
+      <div class="panel-header">
+        <div>
+          <h2>${isAdmin() ? "Agency Dashboard" : "My Pipeline Dashboard"}</h2>
+          <p>${isAdmin() ? "Owner view across the full agency." : "Producer view scoped to your assigned book of business."}</p>
+        </div>
+        <label>
+          Timeframe
+          <select id="timeframeSelect">
+            <option value="all" ${state.ui.timeframe === "all" ? "selected" : ""}>All time</option>
+            <option value="week" ${state.ui.timeframe === "week" ? "selected" : ""}>Current week</option>
+            <option value="month" ${state.ui.timeframe === "month" ? "selected" : ""}>Current month</option>
+          </select>
+        </label>
+      </div>
+      <div class="dashboard-grid">
+        ${statCard("Total Leads", summary.totalLeads, "In selected timeframe")}
+        ${statCard("Open Leads", summary.openLeads, "Still active")}
+        ${statCard("Overdue Follow-Up", summary.overdueFollowUp, "Needs attention")}
+        ${statCard("Quotes in Pipeline", summary.quotesInPipeline, "Not yet closed")}
+        ${statCard("Binds", summary.binds, "Closed won")}
+      </div>
+      <div class="metrics-grid">
+        ${kpiCard("Bound Premium", formatCurrency(summary.boundPremium), "Actual premium")}
+        ${kpiCard("Pipeline Agency Comm", formatCurrency(summary.pipelineAgencyComm), "Projected commission")}
+        ${kpiCard("Actual Agency Comm", formatCurrency(summary.actualAgencyComm), "Closed won revenue")}
+        ${kpiCard("Owner Net Agency Comm", formatCurrency(summary.ownerNetAgencyComm), "After rep payout")}
+      </div>
+    </section>
+
+    <section class="panel" id="opportunities">
+      <div class="panel-header">
+        <div>
+          <h2>${isAdmin() ? "Master Opportunity Log" : "My Opportunity Log"}</h2>
+          <p>${isAdmin() ? "Admin can assign, edit, and inspect every producer pipeline." : "You can fully manage every lead assigned to you."}</p>
+        </div>
+      </div>
+      <div class="two-column">
+        <div class="form-card">
+          <div class="panel-header">
+            <div>
+              <h3>${activeOpportunity.id ? "Edit Opportunity" : "Create Opportunity"}</h3>
+              <p>${activeOpportunity.id ? escapeHtml(activeOpportunity.leadNumber) : "New lead record"}</p>
+            </div>
+            ${activeOpportunity.id ? `<span class="pill">${escapeHtml(activeOpportunity.status)}</span>` : ""}
+          </div>
+          ${renderOpportunityForm(activeOpportunity)}
+        </div>
+        <div class="table-card">
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <label>
+                Search
+                <input id="searchInput" value="${escapeHtml(state.ui.search)}" placeholder="Business, rep, lead number" />
+              </label>
+              <label>
+                Status
+                <select id="statusFilterSelect">
+                  <option>All</option>
+                  ${state.setup.statuses.map((status) => `<option ${state.ui.statusFilter === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+                </select>
+              </label>
+            </div>
+            <div class="subtle">${listRows.length} visible</div>
+          </div>
+          <div class="table-wrap">
+            ${listRows.length ? renderOpportunityTable(listRows) : document.getElementById("emptyStateTemplate").innerHTML}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="scorecards">
+      <div class="panel-header">
+        <div>
+          <h2>${isAdmin() ? "Agency Scorecards and ROI" : "My Production Scorecard"}</h2>
+          <p>${isAdmin() ? "Full rollup by rep and lead source." : "Your personal performance against the same tracked metrics."}</p>
+        </div>
+      </div>
+      <div class="two-column">
+        <div class="table-card">
+          <div class="panel-header"><h3>Rep Scorecards</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rep</th>
+                  <th>Leads</th>
+                  <th>Same Day</th>
+                  <th>Contact</th>
+                  <th>Quote</th>
+                  <th>Q-B</th>
+                  <th>Actual Comm</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${scorecards.map((row) => `
+                  <tr>
+                    <td>${escapeHtml(row.name)}</td>
+                    <td>${row.leads}</td>
+                    <td>${formatPct(row.sameDayRate)}</td>
+                    <td>${formatPct(row.contactRate)}</td>
+                    <td>${formatPct(row.quoteRate)}</td>
+                    <td>${formatPct(row.quoteToBindRate)}</td>
+                    <td>${formatCurrency(row.actualAgencyComm)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="panel-header"><h3>Lead Source ROI</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lead Source</th>
+                  <th>Count</th>
+                  <th>Spend</th>
+                  <th>Quote Rate</th>
+                  <th>Bind Rate</th>
+                  <th>Actual Comm</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${roiRows.map((row) => `
+                  <tr>
+                    <td>${escapeHtml(row.source)}</td>
+                    <td>${row.count}</td>
+                    <td>${formatCurrency(row.spend)}</td>
+                    <td>${formatPct(row.quoteRate)}</td>
+                    <td>${formatPct(row.bindRate)}</td>
+                    <td>${formatCurrency(row.actualAgencyComm)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="coaching">
+      <div class="panel-header">
+        <div>
+          <h2>${isAdmin() ? "Weekly Coaching" : "My Coaching Notes"}</h2>
+          <p>${isAdmin() ? "Managers can keep coaching commitments next to the production data." : "View current coaching focus and action commitments."}</p>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Week Start</th>
+                <th>Rep</th>
+                <th>Leads</th>
+                <th>Contact Rate</th>
+                <th>Quotes</th>
+                <th>Binds</th>
+                <th>Biggest Gap</th>
+                <th>Behavior</th>
+                <th>Commitment</th>
+                <th>Next Review Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${coachingRows.map((row) => `
+                <tr>
+                  <td>${escapeHtml(row.weekStart)}</td>
+                  <td>${escapeHtml(row.repName)}</td>
+                  <td>${row.leads}</td>
+                  <td>${formatPct(row.contactRate)}</td>
+                  <td>${row.quotes}</td>
+                  <td>${row.binds}</td>
+                  <td>${coachingInput(row, "biggestGap", row.biggestGap)}</td>
+                  <td>${coachingInput(row, "behaviorToImprove", row.behaviorToImprove)}</td>
+                  <td>${coachingInput(row, "actionCommitment", row.actionCommitment)}</td>
+                  <td>${coachingInput(row, "nextReviewNotes", row.nextReviewNotes)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    ${isAdmin() ? `
+      <section class="panel" id="setup">
+        <div class="panel-header">
+          <div>
+            <h2>Admin Setup</h2>
+            <p>Only the admin can manage global assumptions, producer roster, and dropdown lists.</p>
+          </div>
+        </div>
+        <div class="four-column">
+          ${Object.entries(state.setup.assumptions).map(([key, value]) => `
+            <label class="mini-card">
+              ${humanize(key)}
+              <input data-assumption="${key}" type="number" step="0.01" value="${value}" />
+            </label>
+          `).join("")}
+        </div>
+        <div class="two-column">
+          <article class="table-card">
+            <div class="panel-header"><h3>Users</h3></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${state.profiles.map((profile) => `
+                    <tr>
+                      <td><input data-profile-name="${profile.id}" value="${escapeHtml(profile.full_name)}" /></td>
+                      <td>${escapeHtml(profile.email || "")}</td>
+                      <td>
+                        <select data-profile-role="${profile.id}">
+                          <option value="rep" ${profile.role === "rep" ? "selected" : ""}>rep</option>
+                          <option value="admin" ${profile.role === "admin" ? "selected" : ""}>admin</option>
+                        </select>
+                      </td>
+                      <td>
+                        <select data-profile-active="${profile.id}">
+                          <option value="true" ${profile.active ? "selected" : ""}>Active</option>
+                          <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
+                        </select>
+                      </td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+            <p class="notice">Create or invite users in Supabase Auth. Their profile row is created automatically by the SQL trigger, and you can manage role or active status here.</p>
+          </article>
+          <article class="table-card">
+            <div class="panel-header"><h3>Carrier Commission Table</h3></div>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead>
+                  <tr>
+                    <th>Carrier</th>
+                    <th>New %</th>
+                    <th>Renewal %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${state.setup.carriers.map((carrier, index) => `
+                    <tr>
+                      <td><input data-carrier-name="${index}" value="${escapeHtml(carrier.name)}" /></td>
+                      <td><input data-carrier-new="${index}" type="number" step="0.01" value="${Number(carrier.newPct || 0)}" /></td>
+                      <td><input data-carrier-renewal="${index}" type="number" step="0.01" value="${Number(carrier.renewalPct || 0)}" /></td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+    ` : ""}
+  `;
+
+  bindShellEvents();
+  bindAppEvents();
+}
+
+function renderHeroActions() {
+  if (!SUPABASE_READY) {
+    return `<a class="button button-primary" href="#app">Setup Backend</a>`;
+  }
+  if (!state.session) {
+    return `<span class="pill">Waiting for login</span>`;
+  }
+  return `
+    <div class="auth-summary">
+      <div>
+        <strong>${escapeHtml(state.profile?.full_name || state.session.user.email || "User")}</strong>
+        <div class="subtle">${isAdmin() ? "Admin / owner view" : "Producer view"}</div>
+      </div>
+      <button id="signOutButton" class="button button-ghost" type="button">Sign Out</button>
+    </div>
+  `;
+}
+
+function renderTopNav() {
+  if (!SUPABASE_READY || !state.session) {
+    return `<a href="#app">Access</a>`;
+  }
+  return `
+    <a href="#dashboard">Dashboard</a>
+    <a href="#opportunities">${isAdmin() ? "Master Log" : "My Pipeline"}</a>
+    <a href="#scorecards">Scorecards</a>
+    <a href="#coaching">Coaching</a>
+    ${isAdmin() ? '<a href="#setup">Setup</a>' : ""}
+  `;
+}
+
+function renderSetupRequired() {
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Hosted Backend Needed</h2>
+          <p>This version is wired for shared rep logins and a master agency view, but it needs Supabase keys before it can run.</p>
+        </div>
+      </div>
+      <div class="three-column">
+        <article class="table-card">
+          <h3>1. Create Supabase Project</h3>
+          <p class="mini-note">Create a project, open the SQL editor, and run the schema in <code>supabase-schema.sql</code>.</p>
+        </article>
+        <article class="table-card">
+          <h3>2. Add Config</h3>
+          <p class="mini-note">Copy <code>supabase-config.example.js</code> to <code>supabase-config.js</code> and paste the project URL and anon key.</p>
+        </article>
+        <article class="table-card">
+          <h3>3. Invite Reps</h3>
+          <p class="mini-note">Create rep and admin accounts in Supabase Auth. The SQL trigger auto-creates their profiles.</p>
+        </article>
+      </div>
+      <p class="notice">Once those two keys are added, this app becomes the shared web app you described: rep login, rep-owned pipelines, and an admin-wide command center.</p>
+    </section>
+  `;
+}
+
+function renderLogin() {
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Agency Login</h2>
+          <p>Each producer signs in to their own workspace. The owner sees the full agency operation.</p>
+        </div>
+      </div>
+      ${state.ui.error ? `<p class="error-banner">${escapeHtml(state.ui.error)}</p>` : ""}
+      ${state.ui.notice ? `<p class="notice-banner">${escapeHtml(state.ui.notice)}</p>` : ""}
+      <div class="auth-panel">
+        <form id="loginForm" class="form-card auth-form" novalidate onsubmit="return false;">
+          <label>
+            Email
+            <input type="email" name="email" placeholder="rep@agency.com" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="••••••••" required />
+          </label>
+          <button class="button button-primary" id="loginButton" type="button">${state.ui.authLoading ? "Signing In..." : "Sign In"}</button>
+          <button class="button button-ghost" id="resetPasswordButton" type="button">Send Password Reset Email</button>
+        </form>
+        <article class="table-card">
+          <h3>How access works</h3>
+          <ul>
+            <li>Reps can only view and edit their own assigned leads.</li>
+            <li>Admins can view every lead, assign reps, and adjust agency-wide settings.</li>
+            <li>All producer activity rolls up live into the owner dashboard.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function renderOpportunityForm(row) {
+  const assigneeOptions = (isAdmin() ? state.profiles.filter((item) => item.active) : [state.profile])
+    .map((profile) => `<option value="${profile.id}" ${row.assignedUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`)
+    .join("");
+
+  return `
+    <form id="opportunityForm">
+      <input type="hidden" name="id" value="${escapeHtml(row.id || "")}" />
+      <input type="hidden" name="leadNumber" value="${escapeHtml(row.leadNumber || "")}" />
+      <div class="form-grid">
+        <label>
+          Date Received
+          <input type="date" name="dateReceived" value="${escapeHtml(row.dateReceived || todayIso())}" required />
+        </label>
+        <label>
+          Assigned Rep
+          <select name="assignedUserId">${assigneeOptions}</select>
+        </label>
+        <label>
+          Lead Source
+          <select name="leadSource">${state.setup.leadSources.map((item) => `<option ${row.leadSource === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select>
+        </label>
+        <label>
+          Business Name
+          <input name="businessName" value="${escapeHtml(row.businessName || "")}" required />
+        </label>
+        <label>
+          Target Niche
+          <input name="targetNiche" value="${escapeHtml(row.targetNiche || "")}" />
+        </label>
+        <label>
+          Product Focus
+          <select name="productFocus">${state.setup.products.map((item) => `<option ${row.productFocus === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select>
+        </label>
+        <label>
+          Carrier
+          <select name="carrier">${state.setup.carriers.map((carrier) => `<option ${row.carrier === carrier.name ? "selected" : ""}>${escapeHtml(carrier.name)}</option>`).join("")}</select>
+        </label>
+        <label>
+          Policy Type
+          <select name="policyType">
+            <option value="New" ${row.policyType === "New" ? "selected" : ""}>New</option>
+            <option value="Renewal" ${row.policyType === "Renewal" ? "selected" : ""}>Renewal</option>
+          </select>
+        </label>
+        <label>
+          Lead Cost
+          <input type="number" step="0.01" name="leadCost" value="${Number(row.leadCost || 0)}" />
+        </label>
+        <label>
+          Premium Quoted
+          <input type="number" step="0.01" name="premiumQuoted" value="${Number(row.premiumQuoted || 0)}" />
+        </label>
+        <label>
+          Premium Bound
+          <input type="number" step="0.01" name="premiumBound" value="${Number(row.premiumBound || 0)}" />
+        </label>
+        <label>
+          Status
+          <select name="status">${state.setup.statuses.map((item) => `<option ${row.status === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select>
+        </label>
+        <label>
+          First Attempt Date
+          <input type="date" name="firstAttemptDate" value="${escapeHtml(row.firstAttemptDate || "")}" />
+        </label>
+        <label>
+          Last Activity Date
+          <input type="date" name="lastActivityDate" value="${escapeHtml(row.lastActivityDate || "")}" />
+        </label>
+        <label>
+          Next Follow-Up Date
+          <input type="date" name="nextFollowUpDate" value="${escapeHtml(row.nextFollowUpDate || "")}" />
+        </label>
+        <label class="full-span">
+          Notes
+          <textarea name="notes">${escapeHtml(row.notes || "")}</textarea>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button class="button button-primary" type="submit">${row.id ? "Save Changes" : "Create Lead"}</button>
+        <button class="button button-ghost" type="button" id="newOpportunityButton">Start New</button>
+        ${row.id ? '<button class="button button-secondary" type="button" id="deleteOpportunityButton">Delete</button>' : ""}
+      </div>
+    </form>
+  `;
+}
+
+function renderOpportunityTable(rows) {
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Lead #</th>
+          <th>Business</th>
+          <th>Rep</th>
+          <th>Status</th>
+          <th>Follow-Up</th>
+          <th>Quoted</th>
+          <th>Bound</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr data-select-opportunity="${escapeHtml(row.id)}">
+            <td>${escapeHtml(row.leadNumber)}</td>
+            <td>
+              <strong>${escapeHtml(row.businessName)}</strong>
+              <div class="subtle">${escapeHtml(row.leadSource)}</div>
+            </td>
+            <td>${escapeHtml(row.assignedRepName)}</td>
+            <td>${statusPill(row.status, row.followUpOverdue)}</td>
+            <td><span class="tag">${escapeHtml(row.followUpBucket)}</span></td>
+            <td>${formatCurrency(row.premiumQuoted)}</td>
+            <td>${formatCurrency(row.premiumBound)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function coachingInput(row, field, value) {
+  if (!isAdmin()) {
+    return `<span>${escapeHtml(value)}</span>`;
+  }
+  return `<input data-coaching-rep="${row.repId}" data-coaching-field="${field}" value="${escapeHtml(value)}" />`;
+}
+
+function statCard(title, value, meta) {
+  return `<article class="stat-card"><h3>${escapeHtml(title)}</h3><span class="stat-value">${value}</span><div class="stat-meta">${escapeHtml(meta)}</div></article>`;
+}
+
+function kpiCard(title, value, meta) {
+  return `<article class="kpi-card"><h3>${escapeHtml(title)}</h3><span class="kpi-value">${escapeHtml(value)}</span><div class="stat-meta">${escapeHtml(meta)}</div></article>`;
+}
+
+function humanize(value) {
+  return value.replace(/Pct/g, " %").replace(/Days/g, " Days").replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
+function statusPill(status, overdue) {
+  let tone = "good";
+  if (overdue || status === "Lost") tone = "bad";
+  if (["New Lead", "Attempted", "Quoted", "Pending Decision"].includes(status)) tone = "warn";
+  return `<span class="status-pill" data-tone="${tone}">${escapeHtml(status)}</span>`;
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(Number(value || 0));
+}
+
+function formatPct(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function blankOpportunity() {
+  return {
+    id: "",
+    leadNumber: "",
+    assignedUserId: state.profile?.id || "",
+    assignedRepName: state.profile?.full_name || "",
+    dateReceived: todayIso(),
+    leadSource: state.setup.leadSources[0] || "",
+    businessName: "",
+    targetNiche: "",
+    productFocus: state.setup.products[0] || "",
+    carrier: state.setup.carriers[0]?.name || "",
+    policyType: "New",
+    leadCost: 0,
+    premiumQuoted: 0,
+    premiumBound: 0,
+    status: state.setup.statuses[0] || "New Lead",
+    firstAttemptDate: "",
+    lastActivityDate: "",
+    nextFollowUpDate: "",
+    notes: ""
+  };
+}
+
+function generateLeadNumber(dateReceived) {
+  const compact = `${dateReceived.slice(2, 4)}${dateReceived.slice(5, 7)}${dateReceived.slice(8, 10)}`;
+  const matching = state.opportunities.filter((item) => item.dateReceived === dateReceived).length + 1;
+  return `${compact}-${String(matching).padStart(4, "0")}`;
+}
+
+function bindShellEvents() {
+  const signOutButton = document.getElementById("signOutButton");
+  if (signOutButton) {
+    signOutButton.addEventListener("click", async () => {
+      await state.supabase.auth.signOut();
+    });
+  }
+}
+
+function bindAppEvents() {
+  const timeframeSelect = document.getElementById("timeframeSelect");
+  if (timeframeSelect) {
+    timeframeSelect.addEventListener("change", (event) => {
+      state.ui.timeframe = event.target.value;
+      render();
+    });
+  }
+
+  const loginForm = document.getElementById("loginForm");
+  if (loginForm) {
+    const runLogin = async () => {
+      state.ui.error = "";
+      state.ui.notice = "";
+      const formData = new FormData(loginForm);
+      const email = String(formData.get("email"));
+      const password = String(formData.get("password"));
+      state.ui.authLoading = true;
+      render();
+      const { error } = await state.supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      state.ui.authLoading = false;
+      if (error) {
+        state.ui.error = error.message;
+        render();
+      }
+    };
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await runLogin();
+    });
+
+    const loginButton = document.getElementById("loginButton");
+    if (loginButton) {
+      loginButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        await runLogin();
+      });
+    }
+  }
+
+  const resetPasswordButton = document.getElementById("resetPasswordButton");
+  if (resetPasswordButton) {
+    resetPasswordButton.addEventListener("click", async () => {
+      const emailInput = document.querySelector('#loginForm input[name="email"]');
+      const email = emailInput?.value?.trim();
+      if (!email) {
+        state.ui.error = "Enter an email address first so the reset link knows where to go.";
+        state.ui.notice = "";
+        render();
+        return;
+      }
+      const { error } = await state.supabase.auth.resetPasswordForEmail(email);
+      if (error) {
+        state.ui.error = error.message;
+        state.ui.notice = "";
+      } else {
+        state.ui.error = "";
+        state.ui.notice = `Password reset email sent to ${email}.`;
+      }
+      render();
+    });
+  }
+
+  const searchInput = document.getElementById("searchInput");
+  if (searchInput) {
+    searchInput.addEventListener("input", (event) => {
+      state.ui.search = event.target.value;
+      render();
+    });
+  }
+
+  const statusFilterSelect = document.getElementById("statusFilterSelect");
+  if (statusFilterSelect) {
+    statusFilterSelect.addEventListener("change", (event) => {
+      state.ui.statusFilter = event.target.value;
+      render();
+    });
+  }
+
+  document.querySelectorAll("[data-select-opportunity]").forEach((row) => {
+    row.addEventListener("click", () => {
+      state.ui.activeOpportunityId = row.dataset.selectOpportunity;
+      render();
+    });
+  });
+
+  const newOpportunityButton = document.getElementById("newOpportunityButton");
+  if (newOpportunityButton) {
+    newOpportunityButton.addEventListener("click", () => {
+      state.ui.activeOpportunityId = null;
+      render();
+    });
+  }
+
+  const opportunityForm = document.getElementById("opportunityForm");
+  if (opportunityForm) {
+    opportunityForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = Object.fromEntries(new FormData(opportunityForm).entries());
+      try {
+        await saveOpportunity(formData);
+      } catch (error) {
+        state.ui.error = error.message || "Could not save the lead.";
+        render();
+      }
+    });
+  }
+
+  const deleteOpportunityButton = document.getElementById("deleteOpportunityButton");
+  if (deleteOpportunityButton) {
+    deleteOpportunityButton.addEventListener("click", async () => {
+      const active = state.opportunities.find((item) => item.id === state.ui.activeOpportunityId);
+      if (!active || !window.confirm(`Delete ${active.leadNumber}?`)) return;
+      try {
+        const { error } = await state.supabase.from("opportunities").delete().eq("id", active.id);
+        if (error) throw error;
+        state.ui.activeOpportunityId = null;
+        await loadWorkspace();
+      } catch (error) {
+        state.ui.error = error.message || "Could not delete the lead.";
+        render();
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-coaching-field]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      try {
+        await saveCoachingNote(
+          event.target.dataset.coachingRep,
+          event.target.dataset.coachingField,
+          event.target.value
+        );
+      } catch (error) {
+        state.ui.error = error.message || "Could not save coaching notes.";
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-assumption]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      state.setup.assumptions[event.target.dataset.assumption] = Number(event.target.value || 0);
+      await persistSettings();
+    });
+  });
+
+  document.querySelectorAll("[data-profile-name]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      await persistProfile(event.target.dataset.profileName, {
+        full_name: event.target.value
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-profile-role]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      await persistProfile(event.target.dataset.profileRole, {
+        role: event.target.value
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-profile-active]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      await persistProfile(event.target.dataset.profileActive, {
+        active: event.target.value === "true"
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-carrier-name]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      state.setup.carriers[Number(event.target.dataset.carrierName)].name = event.target.value;
+      await persistSettings();
+    });
+  });
+
+  document.querySelectorAll("[data-carrier-new]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      state.setup.carriers[Number(event.target.dataset.carrierNew)].newPct = Number(event.target.value || 0);
+      await persistSettings();
+    });
+  });
+
+  document.querySelectorAll("[data-carrier-renewal]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      state.setup.carriers[Number(event.target.dataset.carrierRenewal)].renewalPct = Number(event.target.value || 0);
+      await persistSettings();
+    });
+  });
+}
+
+async function saveOpportunity(formData) {
+  const payload = mapOpportunityToDb(formData);
+  const { data, error } = await state.supabase
+    .from("opportunities")
+    .upsert(payload)
+    .select("*")
+    .single();
+  if (error) throw error;
+  state.ui.activeOpportunityId = data.id;
+  await loadWorkspace();
+}
+
+async function saveCoachingNote(repId, field, value) {
+  const weekStart = startOfWeek(todayIso());
+  const existing = state.coachingNotes.find((item) => item.rep_user_id === repId && item.week_start === weekStart);
+  const payload = {
+    id: existing?.id,
+    rep_user_id: repId,
+    week_start: weekStart,
+    biggest_gap: existing?.biggest_gap || "",
+    behavior_to_improve: existing?.behavior_to_improve || "",
+    action_commitment: existing?.action_commitment || "",
+    next_review_notes: existing?.next_review_notes || "",
+    created_by: state.profile.id
+  };
+
+  const fieldMap = {
+    biggestGap: "biggest_gap",
+    behaviorToImprove: "behavior_to_improve",
+    actionCommitment: "action_commitment",
+    nextReviewNotes: "next_review_notes"
+  };
+  payload[fieldMap[field]] = value;
+
+  const { error } = await state.supabase.from("coaching_notes").upsert(payload);
+  if (error) throw error;
+  await loadWorkspace();
+}
+
+async function persistSettings() {
+  try {
+    const { error } = await state.supabase.from("app_settings").upsert({
+      singleton_key: "default",
+      assumptions: state.setup.assumptions,
+      lead_sources: state.setup.leadSources,
+      statuses: state.setup.statuses,
+      products: state.setup.products,
+      carriers: state.setup.carriers,
+      updated_by: state.profile.id
+    });
+    if (error) throw error;
+    await loadWorkspace();
+  } catch (error) {
+    state.ui.error = error.message || "Could not save setup settings.";
+    render();
+  }
+}
+
+async function persistProfile(profileId, changes) {
+  try {
+    state.ui.error = "";
+    state.ui.notice = "";
+    const { error } = await state.supabase.from("profiles").update(changes).eq("id", profileId);
+    if (error) throw error;
+    state.ui.notice = "User settings updated.";
+    await loadWorkspace();
+  } catch (error) {
+    state.ui.error = error.message || "Could not update that user.";
+    render();
+  }
+}

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Golden Leaf Agency HQ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Serif+Display:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Golden Leaf Agency</p>
+          <h1>Secure producer pipelines with a master agency command center.</h1>
+          <p class="hero-copy">
+            Reps log into their own workspace, manage only their assigned leads, and feed a shared live
+            operating system for the owner and admin team.
+          </p>
+        </div>
+        <div class="hero-actions" id="heroActions"></div>
+      </header>
+
+      <nav class="top-nav" id="topNav"></nav>
+      <main id="app"></main>
+    </div>
+
+    <template id="emptyStateTemplate">
+      <div class="empty-state">
+        <h3>No records yet</h3>
+        <p>Add the first lead or load your hosted backend to start using the system.</p>
+      </div>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./supabase-config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
