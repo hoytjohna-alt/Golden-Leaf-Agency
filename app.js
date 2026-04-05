@@ -1899,12 +1899,12 @@ function render() {
 
     ${state.ui.activeTab === "dashboard" ? `
     <section class="panel workspace-panel" id="dashboard">
-      <div class="panel-header">
+      <div class="panel-header dashboard-topbar">
         <div>
           <h2>${isAdmin() ? "Agency Dashboard" : "My Pipeline Dashboard"}</h2>
           <p>${isAdmin() ? "Owner view across the full agency." : "Producer view scoped to your assigned book of business."}</p>
         </div>
-        <label>
+        <label class="dashboard-timeframe">
           Timeframe
           <select id="timeframeSelect">
             <option value="all" ${state.ui.timeframe === "all" ? "selected" : ""}>All time</option>
@@ -1913,14 +1913,14 @@ function render() {
           </select>
         </label>
       </div>
-      <div class="dashboard-grid">
+      <div class="dashboard-summary-strip">
         ${statCard("Total Leads", isAdmin() ? summary.totalLeads : userSummary.totalLeads, "In selected timeframe")}
         ${statCard("Open Leads", isAdmin() ? summary.openLeads : userSummary.openLeads, "Still active")}
         ${statCard("Overdue Follow-Up", isAdmin() ? summary.overdueFollowUp : userSummary.overdueFollowUp, "Needs attention")}
         ${statCard("Quotes in Pipeline", isAdmin() ? summary.quotesInPipeline : userSummary.quotesInPipeline, "Not yet closed")}
         ${statCard("Binds", isAdmin() ? summary.binds : userSummary.binds, "Closed won")}
       </div>
-      <div class="metrics-grid">
+      <div class="metrics-grid dashboard-kpi-grid">
         ${isAdmin()
           ? `
             ${kpiCard("Bound Premium", formatCurrency(summary.boundPremium), "Actual premium")}
@@ -1935,8 +1935,8 @@ function render() {
             ${kpiCard("Follow-Ups Due", userSummary.overdueFollowUp, "Leads needing action")}
           `}
       </div>
-      <div class="two-column">
-        <article class="table-card">
+      <div class="two-column dashboard-priority-grid">
+        <article class="table-card dashboard-card dashboard-card-priority">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Renewal Snapshot" : "My Renewal Snapshot"}</h3>
@@ -1951,7 +1951,7 @@ function render() {
             ${statCard("Lost at Renewal", renewalSummary.lostAtRenewal, "Retention losses")}
           </div>
         </article>
-        <article class="table-card">
+        <article class="table-card dashboard-card dashboard-card-priority">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Renewal Stage Mix" : "My Renewal Stage Mix"}</h3>
@@ -1961,8 +1961,8 @@ function render() {
           ${renderBarChart(renewalStageRows, { valueFormatter: formatWholeNumber })}
         </article>
       </div>
-      <div class="two-column">
-        <article class="table-card">
+      <div class="two-column dashboard-analytics-grid">
+        <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Pipeline by Stage" : "My Pipeline by Stage"}</h3>
@@ -1971,7 +1971,7 @@ function render() {
           </div>
           ${renderBarChart(dashboardStageRows, { valueFormatter: formatWholeNumber })}
         </article>
-        <article class="table-card">
+        <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Trend Snapshot" : "Commission Trend"}</h3>
@@ -1981,8 +1981,8 @@ function render() {
           ${renderBarChart(isAdmin() ? monthlyAgencyTrendRows : monthlyRepTrendRows, { valueFormatter: formatCompactCurrency })}
         </article>
       </div>
-      <div class="two-column">
-        <article class="table-card">
+      <div class="two-column dashboard-action-grid">
+        <article class="table-card dashboard-card dashboard-card-action">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Urgent Attention Queue" : "My Action Queue"}</h3>
@@ -1991,7 +1991,7 @@ function render() {
           </div>
           ${renderTaskQueue(taskQueueRows)}
         </article>
-        <article class="table-card">
+        <article class="table-card dashboard-card dashboard-card-action">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Stale Pipeline Alerts" : "My Stale Lead Alerts"}</h3>
@@ -2001,8 +2001,8 @@ function render() {
           ${renderAlertsPanel(dashboardAlerts)}
         </article>
       </div>
-      <div class="two-column">
-        <article class="table-card">
+      <div class="two-column dashboard-team-grid">
+        <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Communication Pulse" : "My Communication Pulse"}</h3>
@@ -2016,7 +2016,7 @@ function render() {
             ${statCard("Quote Deliveries", communicationSummary.quoteTouches, "Quotes delivered to prospects")}
           </div>
         </article>
-        <article class="table-card">
+        <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Touch Activity by Rep" : "My Outreach Mix"}</h3>
@@ -2026,8 +2026,8 @@ function render() {
           ${renderCommunicationLeaderboard(repCommunicationRows)}
         </article>
       </div>
-      <div class="two-column">
-        <article class="table-card">
+      <div class="two-column dashboard-business-grid">
+        <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Top Producers" : "Commission by Lead Source"}</h3>
@@ -2036,7 +2036,7 @@ function render() {
           </div>
           ${renderBarChart(isAdmin() ? leaderboardRows : repSourceRows, { valueFormatter: formatCompactCurrency })}
         </article>
-        <article class="table-card">
+        <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
               <h3>${isAdmin() ? "Admin Actions" : "My Commission Detail"}</h3>
@@ -2053,7 +2053,7 @@ function render() {
             : renderCommissionList(repCommissionRows)}
         </article>
       </div>
-      <div class="table-card">
+      <div class="table-card dashboard-card dashboard-card-renewals">
         <div class="panel-header">
           <div>
             <h3>${isAdmin() ? "Upcoming Renewals" : "My Upcoming Renewals"}</h3>

@@ -450,6 +450,79 @@ main {
   gap: 8px;
 }
 
+#dashboard .dashboard-topbar {
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(27, 58, 92, 0.08);
+}
+
+#dashboard .dashboard-timeframe {
+  min-width: 160px;
+  max-width: 180px;
+}
+
+#dashboard .dashboard-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#dashboard .dashboard-kpi-grid {
+  margin-top: 4px;
+}
+
+#dashboard .dashboard-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+}
+
+#dashboard .dashboard-card-priority {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 241, 229, 0.92));
+}
+
+#dashboard .dashboard-card-action {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 246, 252, 0.94));
+}
+
+#dashboard .dashboard-card-renewals {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 240, 228, 0.94));
+}
+
+#dashboard .dashboard-priority-grid,
+#dashboard .dashboard-analytics-grid,
+#dashboard .dashboard-action-grid,
+#dashboard .dashboard-team-grid,
+#dashboard .dashboard-business-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#dashboard .dashboard-summary-strip .stat-card,
+#dashboard .dashboard-kpi-grid .kpi-card {
+  border-color: rgba(27, 58, 92, 0.09);
+}
+
+#dashboard .dashboard-summary-strip .stat-card {
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+#dashboard .dashboard-kpi-grid .kpi-card {
+  background: linear-gradient(180deg, #fffdf8, #ffffff);
+}
+
+#dashboard .task-card,
+#dashboard .alert-card,
+#dashboard .owner-report-card,
+#dashboard .commission-card {
+  border-radius: 12px;
+}
+
+#dashboard .table-card .panel-header h3 {
+  font-size: 0.98rem;
+}
+
+#dashboard .table-card .panel-header p {
+  font-size: 0.82rem;
+}
+
 #dashboard .dashboard-grid .stat-card,
 #dashboard .metrics-grid .kpi-card {
   min-height: 108px;
@@ -1687,6 +1760,10 @@ tbody tr:hover td {
     width: min(540px, calc(100vw - 26px));
   }
 
+  #dashboard .dashboard-summary-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   #opportunities > .two-column {
     grid-template-columns: 1fr;
   }
@@ -1823,5 +1900,20 @@ tbody tr:hover td {
     width: 100%;
     border-radius: 16px 16px 0 0;
     text-align: left;
+  }
+
+  #dashboard .dashboard-summary-strip,
+  #dashboard .dashboard-priority-grid,
+  #dashboard .dashboard-analytics-grid,
+  #dashboard .dashboard-action-grid,
+  #dashboard .dashboard-team-grid,
+  #dashboard .dashboard-business-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #dashboard .dashboard-timeframe {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
   }
 }
