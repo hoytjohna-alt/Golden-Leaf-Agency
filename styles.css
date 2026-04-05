@@ -379,6 +379,10 @@ main {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+.compact-dashboard-grid {
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+}
+
 .metrics-grid {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }

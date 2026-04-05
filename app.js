@@ -455,6 +455,7 @@ function mapOpportunityFromDb(row) {
     carrier: row.carrier,
     incumbentCarrier: row.incumbent_carrier || "",
     policyType: row.policy_type,
+    renewalStatus: row.renewal_status || "Not Started",
     effectiveDate: row.effective_date || "",
     expirationDate: row.expiration_date || "",
     leadCost: Number(row.lead_cost || 0),
@@ -488,6 +489,7 @@ function mapOpportunityToDb(formData) {
     carrier: formData.carrier,
     incumbent_carrier: formData.incumbentCarrier || "",
     policy_type: formData.policyType,
+    renewal_status: formData.renewalStatus || "Not Started",
     effective_date: formData.effectiveDate || null,
     expiration_date: formData.expirationDate || null,
     lead_cost: Number(formData.leadCost || 0),
@@ -539,6 +541,17 @@ function getRepPayoutPct(leadSource) {
   return leadSource === "Self-Generated" ? 0.5 : 0.4;
 }
 
+function getRenewalStatuses() {
+  return [
+    "Not Started",
+    "Reviewing",
+    "Quoted",
+    "Remarketing",
+    "Retained",
+    "Lost at Renewal"
+  ];
+}
+
 function needsFollowUp(status) {
   return [
     "New Lead",
@@ -577,6 +590,23 @@ function computeOpportunity(row) {
         : dayDiff(todayIso(), row.nextFollowUpDate) <= 1
           ? "Due Soon"
           : "Future";
+  const daysToExpiration = row.expirationDate ? dayDiff(todayIso(), row.expirationDate) : null;
+  const renewalTracked = row.policyType === "Renewal" || Boolean(row.expirationDate);
+  const renewalClosed = ["Retained", "Lost at Renewal"].includes(row.renewalStatus);
+  const renewalApproaching = renewalTracked && daysToExpiration !== null && daysToExpiration >= 0 && daysToExpiration <= 90;
+  const renewalUrgency =
+    daysToExpiration === null
+      ? "No Expiration"
+      : daysToExpiration < 0
+        ? "Expired"
+        : daysToExpiration <= 7
+          ? "Due This Week"
+          : daysToExpiration <= 30
+            ? "Due This Month"
+            : daysToExpiration <= 90
+              ? "Upcoming"
+              : "Future";
+  const renewalNeedsAttention = renewalTracked && !renewalClosed && daysToExpiration !== null && daysToExpiration <= 60;
 
   return {
     ...row,
@@ -600,7 +630,13 @@ function computeOpportunity(row) {
     weekStart: startOfWeek(row.dateReceived),
     month: row.dateReceived?.slice(0, 7) || "",
     freshLead: dayDiff(row.dateReceived, todayIso()) <= Number(state.setup.assumptions.freshLeadWindowDays || 3),
-    followUpBucket
+    followUpBucket,
+    daysToExpiration,
+    renewalTracked,
+    renewalClosed,
+    renewalApproaching,
+    renewalUrgency,
+    renewalNeedsAttention
   };
 }
 
@@ -845,11 +881,41 @@ function getDashboardAlerts(rows) {
   const staleLeads = getStaleLeads(rows);
   const overdueTasks = taskQueue.filter((row) => row.taskOverdue);
   const quotesAging = rows.filter((row) => row.status === "Quoted" && row.daysOpen >= 5 && !row.closed);
+  const renewalsDue = rows.filter((row) => row.renewalNeedsAttention);
   return {
     overdueTasks,
     staleLeads,
-    quotesAging
+    quotesAging,
+    renewalsDue
   };
+}
+
+function getRenewalRows(rows) {
+  return rows
+    .filter((row) => row.renewalTracked)
+    .sort((a, b) => {
+      const aDays = a.daysToExpiration ?? 9999;
+      const bDays = b.daysToExpiration ?? 9999;
+      return aDays - bDays;
+    });
+}
+
+function getRenewalSummary(rows) {
+  const renewalRows = getRenewalRows(rows);
+  return {
+    tracked: renewalRows.length,
+    dueThirty: renewalRows.filter((row) => row.daysToExpiration !== null && row.daysToExpiration >= 0 && row.daysToExpiration <= 30).length,
+    dueSixty: renewalRows.filter((row) => row.daysToExpiration !== null && row.daysToExpiration >= 0 && row.daysToExpiration <= 60).length,
+    retained: renewalRows.filter((row) => row.renewalStatus === "Retained").length,
+    lostAtRenewal: renewalRows.filter((row) => row.renewalStatus === "Lost at Renewal").length
+  };
+}
+
+function getRenewalStageCounts(rows) {
+  return getRenewalStatuses().map((status) => ({
+    label: status,
+    value: rows.filter((row) => row.renewalTracked && row.renewalStatus === status).length
+  }));
 }
 
 function getRepPerformanceRows(rows) {
@@ -1019,6 +1085,9 @@ function render() {
   const repCommissionRows = getRepCommissionRows(getUserScopedRows(timeframeRows));
   const taskQueueRows = getTaskQueue(getUserScopedRows(allRows));
   const dashboardAlerts = getDashboardAlerts(getUserScopedRows(allRows));
+  const renewalSummary = getRenewalSummary(getUserScopedRows(timeframeRows));
+  const renewalRows = getRenewalRows(getUserScopedRows(allRows));
+  const renewalStageRows = getRenewalStageCounts(getUserScopedRows(timeframeRows));
   const ownerRepPerformanceRows = isAdmin() ? getRepPerformanceRows(timeframeRows) : [];
   const ownerSourcePerformanceRows = isAdmin() ? getSourcePerformanceRows(timeframeRows) : [];
   const activeOpportunity =
@@ -1067,6 +1136,32 @@ function render() {
             ${kpiCard("Earned Commission", formatCurrency(userSummary.actualRepPayout), "Your take-home on bound business")}
             ${kpiCard("Follow-Ups Due", userSummary.overdueFollowUp, "Leads needing action")}
           `}
+      </div>
+      <div class="two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Renewal Snapshot" : "My Renewal Snapshot"}</h3>
+              <p>${isAdmin() ? "Watch the retention book coming due across the agency." : "Stay ahead of renewals in your assigned book."}</p>
+            </div>
+          </div>
+          <div class="dashboard-grid compact-dashboard-grid">
+            ${statCard("Tracked Renewals", renewalSummary.tracked, "Policies with renewal dates")}
+            ${statCard("Due in 30 Days", renewalSummary.dueThirty, "Priority retention window")}
+            ${statCard("Due in 60 Days", renewalSummary.dueSixty, "Upcoming renewal work")}
+            ${statCard("Retained", renewalSummary.retained, "Marked retained")}
+            ${statCard("Lost at Renewal", renewalSummary.lostAtRenewal, "Retention losses")}
+          </div>
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Renewal Stage Mix" : "My Renewal Stage Mix"}</h3>
+              <p>${isAdmin() ? "See how the renewal book is moving from review to outcome." : "Track the health of your renewal pipeline."}</p>
+            </div>
+          </div>
+          ${renderBarChart(renewalStageRows, { valueFormatter: formatWholeNumber })}
+        </article>
       </div>
       <div class="two-column">
         <article class="table-card">
@@ -1134,6 +1229,15 @@ function render() {
             `
             : renderCommissionList(repCommissionRows)}
         </article>
+      </div>
+      <div class="table-card">
+        <div class="panel-header">
+          <div>
+            <h3>${isAdmin() ? "Upcoming Renewals" : "My Upcoming Renewals"}</h3>
+            <p>${isAdmin() ? "Accounts nearing expiration so the team can retain before they slip." : "Accounts you should work before renewal deadlines hit."}</p>
+          </div>
+        </div>
+        ${renderRenewalQueue(renewalRows)}
       </div>
     </section>
     ` : ""}
@@ -1789,6 +1893,12 @@ function renderOpportunityForm(row) {
           </select>
         </label>
         <label>
+          Renewal Status
+          <select name="renewalStatus">
+            ${getRenewalStatuses().map((status) => `<option value="${escapeHtml(status)}" ${row.renewalStatus === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
           Effective Date
           <input type="date" name="effectiveDate" value="${escapeHtml(row.effectiveDate || "")}" />
         </label>
@@ -1886,7 +1996,7 @@ function renderLeadWorkspace(row, timeline) {
             <article class="mini-card">
               <h3>Renewal Window</h3>
               <strong>${escapeHtml(row.expirationDate || "Not set")}</strong>
-              <div class="stat-meta">${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</div>
+              <div class="stat-meta">${escapeHtml(row.renewalStatus || "Not Started")} · ${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</div>
             </article>
             <article class="mini-card">
               <h3>Commission Snapshot</h3>
@@ -1960,6 +2070,7 @@ function renderOpportunityTable(rows, selectedRows) {
           <th>Business</th>
           <th>Rep</th>
           <th>Status</th>
+          <th>Renewal</th>
           <th>Follow-Up</th>
           <th>Quoted</th>
           <th>Bound</th>
@@ -1984,6 +2095,10 @@ function renderOpportunityTable(rows, selectedRows) {
             </td>
             <td>${escapeHtml(row.assignedRepName)}</td>
             <td>${statusPill(row.status, row.followUpOverdue)}</td>
+            <td>
+              <div>${escapeHtml(row.renewalStatus || "Not Started")}</div>
+              <div class="subtle">${escapeHtml(row.expirationDate || "No expiration date")}</div>
+            </td>
             <td><span class="tag">${escapeHtml(row.followUpBucket)}</span></td>
             <td>${formatCurrency(row.premiumQuoted)}</td>
             <td>${formatCurrency(row.premiumBound)}</td>
@@ -2156,6 +2271,11 @@ function renderAlertsPanel(alerts) {
       tone: "warn",
       title: `${row.businessName} is getting stale`,
       detail: `${row.daysOpen} days open in ${row.status}. Last activity ${row.lastActivityDate || "not logged"}.`
+    })),
+    ...alerts.renewalsDue.slice(0, 3).map((row) => ({
+      tone: row.daysToExpiration !== null && row.daysToExpiration < 0 ? "bad" : "warn",
+      title: `${row.businessName} renewal needs attention`,
+      detail: `${row.renewalStatus} · ${row.daysToExpiration ?? "?"} days to expiration · ${row.assignedRepName}.`
     }))
   ];
 
@@ -2169,6 +2289,33 @@ function renderAlertsPanel(alerts) {
         <article class="alert-card" data-tone="${item.tone}">
           <strong>${escapeHtml(item.title)}</strong>
           <p>${escapeHtml(item.detail)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderRenewalQueue(rows) {
+  const items = rows.filter((row) => row.daysToExpiration !== null && row.daysToExpiration <= 90);
+  if (!items.length) {
+    return `<div class="empty-state"><h3>No renewals coming due</h3><p>As expiration dates get closer, renewal work will surface here automatically.</p></div>`;
+  }
+  return `
+    <div class="task-queue renewal-queue">
+      ${items.slice(0, 8).map((row) => `
+        <article class="task-card" data-select-opportunity="${escapeHtml(row.id)}">
+          <div class="task-card-top">
+            <strong>${escapeHtml(row.businessName)}</strong>
+            <span class="status-pill" data-tone="${row.daysToExpiration !== null && row.daysToExpiration < 0 ? "bad" : row.daysToExpiration !== null && row.daysToExpiration <= 30 ? "warn" : "good"}">
+              ${escapeHtml(row.renewalStatus)}
+            </span>
+          </div>
+          <div class="subtle">${escapeHtml(row.assignedRepName)} · ${escapeHtml(row.carrier || "No carrier")}</div>
+          <p>${escapeHtml(row.expirationDate || "No expiration date")} · ${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</p>
+          <div class="task-card-meta">
+            <span>${formatRenewalCountdown(row.daysToExpiration)}</span>
+            <span>${escapeHtml(row.nextTask || "No next task")}</span>
+          </div>
         </article>
       `).join("")}
     </div>
@@ -2279,6 +2426,14 @@ function formatCompactCurrency(value) {
   }).format(Number(value || 0));
 }
 
+function formatRenewalCountdown(daysToExpiration) {
+  if (daysToExpiration === null || daysToExpiration === undefined) return "No expiration date";
+  if (daysToExpiration < 0) return `${Math.abs(daysToExpiration)} days past expiration`;
+  if (daysToExpiration === 0) return "Expires today";
+  if (daysToExpiration === 1) return "1 day to renew";
+  return `${daysToExpiration} days to renew`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2300,6 +2455,7 @@ function blankOpportunity() {
     productFocus: state.setup.products[0] || "",
     carrier: state.setup.carriers[0]?.name || "",
     policyType: "New",
+    renewalStatus: "Not Started",
     leadCost: 0,
     premiumQuoted: 0,
     premiumBound: 0,
@@ -3032,6 +3188,7 @@ function buildOpportunityChangeSummary(previous, next) {
   if (previous.assignedUserId !== next.assignedUserId) changes.push(`Reassigned to ${next.assignedRepName}`);
   if (previous.nextTask !== next.nextTask) changes.push(`Next task updated`);
   if (previous.nextFollowUpDate !== next.nextFollowUpDate) changes.push(`Follow-up date changed`);
+  if (previous.renewalStatus !== next.renewalStatus) changes.push(`Renewal status ${previous.renewalStatus} -> ${next.renewalStatus}`);
   if (previous.notes !== next.notes) changes.push(`Notes updated`);
   if (previous.premiumQuoted !== next.premiumQuoted) changes.push(`Quoted premium changed`);
   if (previous.premiumBound !== next.premiumBound) changes.push(`Bound premium changed`);
@@ -3056,6 +3213,7 @@ async function logOpportunityActivity({ opportunityId, title, detail }) {
 function exportAgencyWorkbook() {
   const allRows = getVisibleOpportunities();
   const allTimeSummary = summarize(allRows);
+  const allTimeRenewalSummary = getRenewalSummary(allRows);
   const allTimeScorecards = getRepScorecards(allRows);
   const allTimeRoiRows = getRoiRows(allRows);
   const allTimeCoachingRows = getCoachingRows(allRows);
@@ -3115,7 +3273,11 @@ function exportAgencyWorkbook() {
     "Target Niche": row.targetNiche,
     "Product Focus": row.productFocus,
     Carrier: row.carrier,
+    "Incumbent Carrier": row.incumbentCarrier,
     "Policy Type": row.policyType,
+    "Renewal Status": row.renewalStatus,
+    "Effective Date": row.effectiveDate,
+    "Expiration Date": row.expirationDate,
     Status: row.status,
     "Lead Cost": row.leadCost,
     "Premium Quoted": row.premiumQuoted,
@@ -3154,6 +3316,11 @@ function exportAgencyWorkbook() {
     ["Overdue Follow-Up", allTimeSummary.overdueFollowUp],
     ["Quotes in Pipeline", allTimeSummary.quotesInPipeline],
     ["Binds", allTimeSummary.binds],
+    ["Tracked Renewals", allTimeRenewalSummary.tracked],
+    ["Renewals Due in 30 Days", allTimeRenewalSummary.dueThirty],
+    ["Renewals Due in 60 Days", allTimeRenewalSummary.dueSixty],
+    ["Retained Renewals", allTimeRenewalSummary.retained],
+    ["Lost at Renewal", allTimeRenewalSummary.lostAtRenewal],
     ["Bound Premium", allTimeSummary.boundPremium],
     ["Pipeline Agency Comm", allTimeSummary.pipelineAgencyComm],
     ["Actual Agency Comm", allTimeSummary.actualAgencyComm],

@@ -38,6 +38,7 @@ create table if not exists public.opportunities (
   carrier text not null default '',
   incumbent_carrier text not null default '',
   policy_type text not null default 'New',
+  renewal_status text not null default 'Not Started',
   effective_date date,
   expiration_date date,
   lead_cost numeric(12,2) not null default 0,
@@ -60,6 +61,7 @@ alter table public.opportunities add column if not exists contact_phone text not
 alter table public.opportunities add column if not exists incumbent_carrier text not null default '';
 alter table public.opportunities add column if not exists effective_date date;
 alter table public.opportunities add column if not exists expiration_date date;
+alter table public.opportunities add column if not exists renewal_status text not null default 'Not Started';
 alter table public.opportunities add column if not exists next_task text not null default '';
 alter table public.opportunities add column if not exists task_priority text not null default 'Medium';
 
