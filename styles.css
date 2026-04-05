@@ -888,9 +888,26 @@ main {
   display: block;
 }
 
+.timeline-meta-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .timeline-copy p {
   margin: 6px 0 0;
   color: var(--muted);
+}
+
+.activity-log-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.activity-log-form .full-span {
+  grid-column: 1 / -1;
 }
 
 .commission-card {
@@ -1340,6 +1357,7 @@ tbody tr:hover {
   .toolbar-grid,
   .invite-form,
   .attachment-form,
+  .activity-log-form,
   .import-controls {
     grid-template-columns: 1fr;
   }

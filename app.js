@@ -619,6 +619,32 @@ function getRenewalStatuses() {
   ];
 }
 
+function getCommunicationTypes() {
+  return [
+    "Call",
+    "Email",
+    "Text",
+    "Voicemail",
+    "Appointment",
+    "Quote Delivered",
+    "Note"
+  ];
+}
+
+function getCommunicationOutcomes() {
+  return [
+    "No Answer",
+    "Left Voicemail",
+    "Spoke With Insured",
+    "Sent Information",
+    "Appointment Set",
+    "Quote Delivered",
+    "Follow-Up Scheduled",
+    "Wrong Number",
+    "Other"
+  ];
+}
+
 function needsFollowUp(status) {
   return [
     "New Lead",
@@ -1275,6 +1301,13 @@ function getOpportunityTimeline(opportunityId) {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
+function getCommunicationActivities(rows) {
+  const visibleIds = new Set(rows.map((row) => row.id));
+  return state.opportunityActivities.filter(
+    (item) => visibleIds.has(item.opportunity_id) && item.activity_type && item.activity_type !== "system"
+  );
+}
+
 function getOpportunityAttachments(opportunityId) {
   return state.opportunityAttachments
     .filter((item) => item.opportunity_id === opportunityId)
@@ -1292,6 +1325,45 @@ function getTaskQueue(rows) {
       if (aScore !== bScore) return aScore - bScore;
       return (a.nextFollowUpDate || "9999-12-31").localeCompare(b.nextFollowUpDate || "9999-12-31");
     });
+}
+
+function getCommunicationSummary(rows) {
+  const activities = getCommunicationActivities(rows);
+  return {
+    touches: activities.length,
+    conversations: activities.filter((item) => item.outcome === "Spoke With Insured").length,
+    appointments: activities.filter((item) => item.outcome === "Appointment Set" || item.activity_type === "Appointment").length,
+    quoteTouches: activities.filter((item) => item.activity_type === "Quote Delivered" || item.outcome === "Quote Delivered").length
+  };
+}
+
+function getRepCommunicationRows(rows) {
+  const relevantRows = getUserScopedRows(rows);
+  const opportunityIdsByRep = new Map();
+  relevantRows.forEach((row) => {
+    const existing = opportunityIdsByRep.get(row.assignedUserId) || new Set();
+    existing.add(row.id);
+    opportunityIdsByRep.set(row.assignedUserId, existing);
+  });
+
+  const reps = isAdmin() ? getAssignableProfiles() : [state.profile];
+  return reps
+    .map((rep) => {
+      const ids = opportunityIdsByRep.get(rep.id) || new Set();
+      const activities = state.opportunityActivities.filter(
+        (item) => ids.has(item.opportunity_id) && item.activity_type && item.activity_type !== "system"
+      );
+      return {
+        id: rep.id,
+        name: rep.full_name,
+        touches: activities.length,
+        conversations: activities.filter((item) => item.outcome === "Spoke With Insured").length,
+        appointments: activities.filter((item) => item.outcome === "Appointment Set" || item.activity_type === "Appointment").length,
+        quoteTouches: activities.filter((item) => item.activity_type === "Quote Delivered" || item.outcome === "Quote Delivered").length
+      };
+    })
+    .filter((row) => row.touches > 0 || row.conversations > 0 || row.appointments > 0 || row.quoteTouches > 0)
+    .sort((a, b) => b.touches - a.touches);
 }
 
 function getStaleLeads(rows) {
@@ -1511,6 +1583,8 @@ function render() {
   const repCommissionRows = getRepCommissionRows(getUserScopedRows(timeframeRows));
   const taskQueueRows = getTaskQueue(getUserScopedRows(allRows));
   const dashboardAlerts = getDashboardAlerts(getUserScopedRows(allRows));
+  const communicationSummary = getCommunicationSummary(getUserScopedRows(allRows));
+  const repCommunicationRows = getRepCommunicationRows(allRows);
   const renewalSummary = getRenewalSummary(getUserScopedRows(timeframeRows));
   const renewalRows = getRenewalRows(getUserScopedRows(allRows));
   const renewalStageRows = getRenewalStageCounts(getUserScopedRows(timeframeRows));
@@ -1627,6 +1701,31 @@ function render() {
             </div>
           </div>
           ${renderAlertsPanel(dashboardAlerts)}
+        </article>
+      </div>
+      <div class="two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Communication Pulse" : "My Communication Pulse"}</h3>
+              <p>${isAdmin() ? "Touches, conversations, and appointments logged from the team workspace." : "Your recent lead outreach activity."}</p>
+            </div>
+          </div>
+          <div class="dashboard-grid compact-dashboard-grid">
+            ${statCard("Touches Logged", communicationSummary.touches, "Calls, emails, texts, notes")}
+            ${statCard("Conversations", communicationSummary.conversations, "Spoke with insured")}
+            ${statCard("Appointments Set", communicationSummary.appointments, "Scheduled meetings")}
+            ${statCard("Quote Deliveries", communicationSummary.quoteTouches, "Quotes delivered to prospects")}
+          </div>
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Touch Activity by Rep" : "My Outreach Mix"}</h3>
+              <p>${isAdmin() ? "Quick coaching view of who is actively working their book." : "See how your touches are stacking up."}</p>
+            </div>
+          </div>
+          ${renderCommunicationLeaderboard(repCommunicationRows)}
         </article>
       </div>
       <div class="two-column">
@@ -2601,6 +2700,15 @@ function renderLeadWorkspace(row, timeline) {
       <article class="table-card lead-workspace-panel">
         <div class="panel-header">
           <div>
+            <h3>Log Lead Activity</h3>
+            <p>${row.id ? "Capture calls, emails, texts, appointments, and outcomes without leaving the lead." : "Create the lead first, then log rep outreach."}</p>
+          </div>
+        </div>
+        ${renderOpportunityActivityComposer(row)}
+      </article>
+      <article class="table-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
             <h3>Activity Timeline</h3>
             <p>${row.id ? "Every meaningful lead change appears here." : "Timeline starts after the lead is created."}</p>
           </div>
@@ -2637,6 +2745,45 @@ function renderCreateLeadWorkspace() {
   `;
 }
 
+function renderOpportunityActivityComposer(row) {
+  if (!row.id) {
+    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, reps can log outreach and appointments here.</p></div>`;
+  }
+
+  return `
+    <form id="activityLogForm" class="activity-log-form">
+      <input type="hidden" name="opportunityId" value="${escapeHtml(row.id)}" />
+      <label>
+        Activity Type
+        <select name="activityType">
+          ${getCommunicationTypes().map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        Outcome
+        <select name="outcome">
+          ${getCommunicationOutcomes().map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        Next Follow-Up
+        <input type="date" name="nextFollowUpDate" value="${escapeHtml(row.nextFollowUpDate || "")}" />
+      </label>
+      <label>
+        Appointment Time
+        <input type="datetime-local" name="appointmentAt" />
+      </label>
+      <label class="full-span">
+        Activity Notes
+        <textarea name="detail" placeholder="What happened on the touchpoint? What was said, sent, or scheduled?"></textarea>
+      </label>
+      <div class="form-actions">
+        <button class="button button-primary" type="submit">Log Activity</button>
+      </div>
+    </form>
+  `;
+}
+
 function renderOpportunityTimeline(row, timeline) {
   if (!row.id) {
     return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, status changes, notes, and assignments will appear here.</p></div>`;
@@ -2651,8 +2798,38 @@ function renderOpportunityTimeline(row, timeline) {
           <div class="timeline-dot"></div>
           <div class="timeline-copy">
             <strong>${escapeHtml(item.title)}</strong>
+            <div class="timeline-meta-row">
+              ${item.activity_type && item.activity_type !== "system" ? `<span class="tag">${escapeHtml(item.activity_type)}</span>` : ""}
+              ${item.outcome ? `<span class="tag">${escapeHtml(item.outcome)}</span>` : ""}
+              ${item.next_follow_up_date ? `<span class="tag">Follow-up ${escapeHtml(item.next_follow_up_date)}</span>` : ""}
+            </div>
             <p>${escapeHtml(item.detail || "")}</p>
+            ${item.appointment_at ? `<span class="subtle">Appointment: ${formatDateTime(item.appointment_at)}</span>` : ""}
             <span class="subtle">${escapeHtml(item.actor_name || "System")} · ${formatDateTime(item.created_at)}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCommunicationLeaderboard(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state"><h3>No outreach logged yet</h3><p>Once reps start recording touches, this turns into a coaching and accountability view.</p></div>`;
+  }
+
+  return `
+    <div class="owner-report-list">
+      ${rows.map((row) => `
+        <article class="owner-report-card">
+          <div class="owner-report-header">
+            <strong>${escapeHtml(row.name)}</strong>
+            <span class="tag">${row.touches} touches</span>
+          </div>
+          <div class="owner-report-metrics">
+            <span>${row.conversations} conversations</span>
+            <span>${row.appointments} appointments</span>
+            <span>${row.quoteTouches} quote deliveries</span>
           </div>
         </article>
       `).join("")}
@@ -3494,6 +3671,27 @@ function bindAppEvents() {
     });
   }
 
+  const activityLogForm = document.getElementById("activityLogForm");
+  if (activityLogForm) {
+    activityLogForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = Object.fromEntries(new FormData(activityLogForm).entries());
+      try {
+        await saveCommunicationActivity({
+          opportunityId: String(formData.opportunityId || ""),
+          activityType: String(formData.activityType || "Note"),
+          outcome: String(formData.outcome || "Other"),
+          detail: String(formData.detail || ""),
+          nextFollowUpDate: String(formData.nextFollowUpDate || ""),
+          appointmentAt: String(formData.appointmentAt || "")
+        });
+      } catch (error) {
+        state.ui.error = error.message || "Could not log that activity.";
+        render();
+      }
+    });
+  }
+
   document.querySelectorAll("[data-download-attachment]").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
@@ -3856,6 +4054,53 @@ async function uploadOpportunityAttachment({ opportunityId, fileType, file }) {
   }
 }
 
+async function saveCommunicationActivity({ opportunityId, activityType, outcome, detail, nextFollowUpDate, appointmentAt }) {
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity) {
+    throw new Error("That lead could not be found.");
+  }
+
+  const cleanActivityType = matchConfiguredValue(activityType, getCommunicationTypes(), "Note");
+  const cleanOutcome = matchConfiguredValue(outcome, getCommunicationOutcomes(), "Other");
+  const cleanFollowUpDate = nextFollowUpDate || "";
+  const cleanAppointmentAt = appointmentAt ? new Date(appointmentAt).toISOString() : null;
+  const detailParts = [];
+  if (detail.trim()) detailParts.push(detail.trim());
+  if (cleanFollowUpDate) detailParts.push(`Next follow-up ${cleanFollowUpDate}.`);
+  if (cleanAppointmentAt) detailParts.push(`Appointment scheduled ${formatDateTime(cleanAppointmentAt)}.`);
+
+  await logOpportunityActivity({
+    opportunityId,
+    activityType: cleanActivityType,
+    outcome: cleanOutcome,
+    nextFollowUpDate: cleanFollowUpDate || null,
+    appointmentAt: cleanAppointmentAt,
+    title: `${cleanActivityType} logged`,
+    detail: detailParts.join(" ") || `${cleanActivityType} recorded with outcome: ${cleanOutcome}.`
+  });
+
+  const updates = {
+    last_activity_date: todayIso()
+  };
+  if (cleanFollowUpDate) {
+    updates.next_follow_up_date = cleanFollowUpDate;
+  }
+  if (!opportunity.firstAttemptDate && ["Call", "Email", "Text", "Voicemail"].includes(cleanActivityType)) {
+    updates.first_attempt_date = todayIso();
+  }
+
+  const { error } = await state.supabase
+    .from("opportunities")
+    .update(updates)
+    .eq("id", opportunityId);
+  if (error) {
+    throw error;
+  }
+
+  state.ui.notice = `${cleanActivityType} logged for ${opportunity.businessName}.`;
+  await loadWorkspace();
+}
+
 async function openOpportunityAttachment(attachmentId) {
   const attachment = state.opportunityAttachments.find((item) => item.id === attachmentId);
   if (!attachment) {
@@ -4172,16 +4417,23 @@ function buildOpportunityChangeSummary(previous, next) {
   return changes.length ? changes.join(" · ") : "Lead details refreshed.";
 }
 
-async function logOpportunityActivity({ opportunityId, title, detail }) {
+async function logOpportunityActivity({ opportunityId, title, detail, activityType = "system", outcome = "", nextFollowUpDate = null, appointmentAt = null }) {
   if (!state.supabase || !opportunityId) return;
   const payload = {
     opportunity_id: opportunityId,
     actor_id: state.profile?.id || null,
     actor_name: state.profile?.full_name || state.session?.user?.email || "System",
+    activity_type: activityType,
+    outcome,
+    next_follow_up_date: nextFollowUpDate || null,
+    appointment_at: appointmentAt || null,
     title,
     detail: detail || ""
   };
   const { error } = await state.supabase.from("opportunity_activity").insert(payload);
+  if (error && String(error.message || "").match(/activity_type|outcome|appointment_at|next_follow_up_date/i)) {
+    throw new Error("Run the latest Supabase schema so communication logging fields are available.");
+  }
   if (error && !String(error.message || "").includes("opportunity_activity")) {
     throw error;
   }

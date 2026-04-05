@@ -89,10 +89,19 @@ create table if not exists public.opportunity_activity (
   opportunity_id uuid not null references public.opportunities (id) on delete cascade,
   actor_id uuid references public.profiles (id) on delete set null,
   actor_name text not null default '',
+  activity_type text not null default 'system',
+  outcome text not null default '',
+  next_follow_up_date date,
+  appointment_at timestamptz,
   title text not null default '',
   detail text not null default '',
   created_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.opportunity_activity add column if not exists activity_type text not null default 'system';
+alter table public.opportunity_activity add column if not exists outcome text not null default '';
+alter table public.opportunity_activity add column if not exists next_follow_up_date date;
+alter table public.opportunity_activity add column if not exists appointment_at timestamptz;
 
 create table if not exists public.opportunity_attachments (
   id uuid primary key default gen_random_uuid(),
