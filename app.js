@@ -70,6 +70,7 @@ const state = {
   setup: structuredClone(seedSettings),
   profiles: [],
   opportunities: [],
+  opportunityActivities: [],
   coachingNotes: [],
   ui: {
     loading: true,
@@ -167,17 +168,19 @@ async function loadWorkspace() {
       return;
     }
 
-    const [settings, opportunities, coachingNotes, profiles] = await withTimeout(Promise.all([
+    const [settings, opportunities, coachingNotes, profiles, opportunityActivities] = await withTimeout(Promise.all([
       fetchSettings(),
       fetchOpportunities(),
       fetchCoachingNotes(),
-      isAdmin() ? fetchProfiles() : Promise.resolve([profile])
+      isAdmin() ? fetchProfiles() : Promise.resolve([profile]),
+      fetchOpportunityActivities()
     ]), WORKSPACE_TIMEOUT_MS);
 
     state.setup = settings;
     state.opportunities = opportunities;
     state.coachingNotes = coachingNotes;
     state.profiles = profiles;
+    state.opportunityActivities = opportunityActivities;
     state.ui.recoveringSession = false;
     state.ui.selectedOpportunityIds = [];
     state.ui.loading = false;
@@ -370,6 +373,20 @@ async function fetchOpportunities() {
   return (data || []).map(mapOpportunityFromDb);
 }
 
+async function fetchOpportunityActivities() {
+  const { data, error } = await state.supabase
+    .from("opportunity_activity")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (String(error.message || "").includes("opportunity_activity")) {
+      return [];
+    }
+    throw error;
+  }
+  return data || [];
+}
+
 async function fetchCoachingNotes() {
   const { data, error } = await state.supabase
     .from("coaching_notes")
@@ -390,8 +407,14 @@ function mapOpportunityFromDb(row) {
     businessName: row.business_name,
     targetNiche: row.target_niche,
     productFocus: row.product_focus,
+    contactName: row.contact_name || "",
+    contactEmail: row.contact_email || "",
+    contactPhone: row.contact_phone || "",
     carrier: row.carrier,
+    incumbentCarrier: row.incumbent_carrier || "",
     policyType: row.policy_type,
+    effectiveDate: row.effective_date || "",
+    expirationDate: row.expiration_date || "",
     leadCost: Number(row.lead_cost || 0),
     premiumQuoted: Number(row.premium_quoted || 0),
     premiumBound: Number(row.premium_bound || 0),
@@ -399,6 +422,8 @@ function mapOpportunityFromDb(row) {
     firstAttemptDate: row.first_attempt_date || "",
     lastActivityDate: row.last_activity_date || "",
     nextFollowUpDate: row.next_follow_up_date || "",
+    nextTask: row.next_task || "",
+    taskPriority: row.task_priority || "Medium",
     notes: row.notes || ""
   };
 }
@@ -415,8 +440,14 @@ function mapOpportunityToDb(formData) {
     business_name: formData.businessName,
     target_niche: formData.targetNiche,
     product_focus: formData.productFocus,
+    contact_name: formData.contactName || "",
+    contact_email: formData.contactEmail || "",
+    contact_phone: formData.contactPhone || "",
     carrier: formData.carrier,
+    incumbent_carrier: formData.incumbentCarrier || "",
     policy_type: formData.policyType,
+    effective_date: formData.effectiveDate || null,
+    expiration_date: formData.expirationDate || null,
     lead_cost: Number(formData.leadCost || 0),
     premium_quoted: Number(formData.premiumQuoted || 0),
     premium_bound: Number(formData.premiumBound || 0),
@@ -424,6 +455,8 @@ function mapOpportunityToDb(formData) {
     first_attempt_date: formData.firstAttemptDate || null,
     last_activity_date: formData.lastActivityDate || null,
     next_follow_up_date: formData.nextFollowUpDate || null,
+    next_task: formData.nextTask || "",
+    task_priority: formData.taskPriority || "Medium",
     notes: formData.notes || ""
   };
 }
@@ -492,6 +525,7 @@ function computeOpportunity(row) {
   const potentialRepPayout = potentialAgencyComm * repPayoutPct;
   const followUpNeeded = needsFollowUp(row.status);
   const followUpOverdue = Boolean(followUpNeeded && row.nextFollowUpDate && todayIso() > row.nextFollowUpDate);
+  const taskOverdue = Boolean(row.nextFollowUpDate && todayIso() > row.nextFollowUpDate && row.status !== "Bound" && row.status !== "Lost");
   const followUpBucket = !followUpNeeded
     ? "Closed"
     : !row.nextFollowUpDate
@@ -512,6 +546,7 @@ function computeOpportunity(row) {
     workedSameDay: Boolean(row.firstAttemptDate && row.firstAttemptDate === row.dateReceived),
     followUpNeeded,
     followUpOverdue,
+    taskOverdue,
     agencyCommPct,
     actualAgencyComm,
     potentialAgencyComm,
@@ -721,6 +756,12 @@ function getRepCommissionRows(rows) {
     }));
 }
 
+function getOpportunityTimeline(opportunityId) {
+  return state.opportunityActivities
+    .filter((item) => item.opportunity_id === opportunityId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
 function getMonthlyTrendRows(rows, key, monthsBack = 6) {
   const months = [];
   const now = parseDate(todayIso()) || new Date();
@@ -867,6 +908,7 @@ function render() {
   const activeOpportunity =
     state.opportunities.find((item) => item.id === state.ui.activeOpportunityId) ||
     blankOpportunity();
+  const activeOpportunityTimeline = activeOpportunity.id ? getOpportunityTimeline(activeOpportunity.id) : [];
 
   appEl.innerHTML = `
     ${state.ui.error ? `<section class="panel"><p class="error-banner">${escapeHtml(state.ui.error)}</p></section>` : ""}
@@ -1055,16 +1097,7 @@ function render() {
               </div>
             `}
         </div>
-        <div class="form-card">
-          <div class="panel-header">
-            <div>
-              <h3>${activeOpportunity.id ? "Edit Opportunity" : "Create Opportunity"}</h3>
-              <p>${activeOpportunity.id ? escapeHtml(activeOpportunity.leadNumber) : "New lead record"}</p>
-            </div>
-            ${activeOpportunity.id ? `<span class="pill">${escapeHtml(activeOpportunity.status)}</span>` : ""}
-          </div>
-          ${renderOpportunityForm(activeOpportunity)}
-        </div>
+        ${renderLeadWorkspace(activeOpportunity, activeOpportunityTimeline)}
       </div>
     </section>
     ` : ""}
@@ -1480,7 +1513,12 @@ function renderOpportunityForm(row) {
     <form id="opportunityForm">
       <input type="hidden" name="id" value="${escapeHtml(row.id || "")}" />
       <input type="hidden" name="leadNumber" value="${escapeHtml(row.leadNumber || "")}" />
-      <div class="form-grid">
+      <div class="workspace-form-section">
+        <div class="workspace-section-header">
+          <h4>Lead Profile</h4>
+          <p>Core account details and contact information.</p>
+        </div>
+        <div class="form-grid">
         <label>
           Date Received
           <input type="date" name="dateReceived" value="${escapeHtml(row.dateReceived || todayIso())}" required />
@@ -1506,8 +1544,32 @@ function renderOpportunityForm(row) {
           <select name="productFocus">${state.setup.products.map((item) => `<option ${row.productFocus === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select>
         </label>
         <label>
+          Contact Name
+          <input name="contactName" value="${escapeHtml(row.contactName || "")}" />
+        </label>
+        <label>
+          Contact Email
+          <input type="email" name="contactEmail" value="${escapeHtml(row.contactEmail || "")}" />
+        </label>
+        <label>
+          Contact Phone
+          <input name="contactPhone" value="${escapeHtml(row.contactPhone || "")}" />
+        </label>
+        </div>
+      </div>
+      <div class="workspace-form-section">
+        <div class="workspace-section-header">
+          <h4>Workflow</h4>
+          <p>Stage, reminders, and next actions that keep the lead moving.</p>
+        </div>
+        <div class="form-grid">
+        <label>
           Carrier
           <select name="carrier">${state.setup.carriers.map((carrier) => `<option ${row.carrier === carrier.name ? "selected" : ""}>${escapeHtml(carrier.name)}</option>`).join("")}</select>
+        </label>
+        <label>
+          Incumbent Carrier
+          <input name="incumbentCarrier" value="${escapeHtml(row.incumbentCarrier || "")}" />
         </label>
         <label>
           Policy Type
@@ -1517,16 +1579,24 @@ function renderOpportunityForm(row) {
           </select>
         </label>
         <label>
-          Lead Cost
-          <input type="number" step="0.01" name="leadCost" value="${Number(row.leadCost || 0)}" />
+          Effective Date
+          <input type="date" name="effectiveDate" value="${escapeHtml(row.effectiveDate || "")}" />
         </label>
         <label>
-          Premium Quoted
-          <input type="number" step="0.01" name="premiumQuoted" value="${Number(row.premiumQuoted || 0)}" />
+          Expiration Date
+          <input type="date" name="expirationDate" value="${escapeHtml(row.expirationDate || "")}" />
         </label>
         <label>
-          Premium Bound
-          <input type="number" step="0.01" name="premiumBound" value="${Number(row.premiumBound || 0)}" />
+          Next Task
+          <input name="nextTask" value="${escapeHtml(row.nextTask || "")}" placeholder="Call back, quote follow-up, collect docs" />
+        </label>
+        <label>
+          Task Priority
+          <select name="taskPriority">
+            <option value="High" ${row.taskPriority === "High" ? "selected" : ""}>High</option>
+            <option value="Medium" ${!row.taskPriority || row.taskPriority === "Medium" ? "selected" : ""}>Medium</option>
+            <option value="Low" ${row.taskPriority === "Low" ? "selected" : ""}>Low</option>
+          </select>
         </label>
         <label>
           Status
@@ -1544,10 +1614,31 @@ function renderOpportunityForm(row) {
           Next Follow-Up Date
           <input type="date" name="nextFollowUpDate" value="${escapeHtml(row.nextFollowUpDate || "")}" />
         </label>
+        <label>
+          Lead Cost
+          <input type="number" step="0.01" name="leadCost" value="${Number(row.leadCost || 0)}" />
+        </label>
+        <label>
+          Premium Quoted
+          <input type="number" step="0.01" name="premiumQuoted" value="${Number(row.premiumQuoted || 0)}" />
+        </label>
+        <label>
+          Premium Bound
+          <input type="number" step="0.01" name="premiumBound" value="${Number(row.premiumBound || 0)}" />
+        </label>
+        </div>
+      </div>
+      <div class="workspace-form-section">
+        <div class="workspace-section-header">
+          <h4>Notes</h4>
+          <p>Context for the next producer touchpoint.</p>
+        </div>
+        <div class="form-grid">
         <label class="full-span">
           Notes
           <textarea name="notes">${escapeHtml(row.notes || "")}</textarea>
         </label>
+        </div>
       </div>
       <div class="form-actions">
         <button class="button button-primary" type="submit">${row.id ? "Save Changes" : "Create Lead"}</button>
@@ -1555,6 +1646,80 @@ function renderOpportunityForm(row) {
         ${row.id ? '<button class="button button-secondary" type="button" id="deleteOpportunityButton">Delete</button>' : ""}
       </div>
     </form>
+  `;
+}
+
+function renderLeadWorkspace(row, timeline) {
+  const taskTone = row.taskOverdue ? "bad" : (row.taskPriority === "High" ? "warn" : "good");
+  return `
+    <div class="lead-workspace">
+      <article class="form-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>${row.id ? "Lead Workspace" : "Create Opportunity"}</h3>
+            <p>${row.id ? escapeHtml(row.leadNumber) : "New lead record"}</p>
+          </div>
+          ${row.id ? `<span class="pill">${escapeHtml(row.status)}</span>` : ""}
+        </div>
+        ${row.id ? `
+          <div class="workspace-overview-grid">
+            <article class="mini-card">
+              <h3>Next Task</h3>
+              <strong>${escapeHtml(row.nextTask || "Not set")}</strong>
+              <div class="stat-meta">${escapeHtml(row.nextFollowUpDate || "No follow-up date")}</div>
+            </article>
+            <article class="mini-card">
+              <h3>Priority</h3>
+              <span class="status-pill" data-tone="${taskTone}">${escapeHtml(row.taskPriority || "Medium")}</span>
+              <div class="stat-meta">${row.taskOverdue ? "Overdue now" : "On track"}</div>
+            </article>
+            <article class="mini-card">
+              <h3>Renewal Window</h3>
+              <strong>${escapeHtml(row.expirationDate || "Not set")}</strong>
+              <div class="stat-meta">${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</div>
+            </article>
+            <article class="mini-card">
+              <h3>Commission Snapshot</h3>
+              <strong>${formatCurrency(isAdmin() ? row.actualAgencyComm : row.actualRepPayout)}</strong>
+              <div class="stat-meta">${isAdmin() ? "Actual agency commission" : "Your actual payout"}</div>
+            </article>
+          </div>
+        ` : ""}
+        ${renderOpportunityForm(row)}
+      </article>
+      <article class="table-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>Activity Timeline</h3>
+            <p>${row.id ? "Every meaningful lead change appears here." : "Timeline starts after the lead is created."}</p>
+          </div>
+        </div>
+        ${renderOpportunityTimeline(row, timeline)}
+      </article>
+    </div>
+  `;
+}
+
+function renderOpportunityTimeline(row, timeline) {
+  if (!row.id) {
+    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, status changes, notes, and assignments will appear here.</p></div>`;
+  }
+  if (!timeline.length) {
+    return `<div class="empty-state"><h3>No activity yet</h3><p>After you run the new database script, this lead will start recording a visible history automatically.</p></div>`;
+  }
+  return `
+    <div class="timeline-list">
+      ${timeline.map((item) => `
+        <article class="timeline-entry">
+          <div class="timeline-dot"></div>
+          <div class="timeline-copy">
+            <strong>${escapeHtml(item.title)}</strong>
+            <p>${escapeHtml(item.detail || "")}</p>
+            <span class="subtle">${escapeHtml(item.actor_name || "System")} · ${formatDateTime(item.created_at)}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -1744,6 +1909,16 @@ function formatCurrency(value) {
 
 function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatWholeNumber(value) {
@@ -2272,6 +2447,7 @@ function bindAppEvents() {
 }
 
 async function saveOpportunity(formData) {
+  const existing = state.opportunities.find((item) => item.id === formData.id);
   const payload = mapOpportunityToDb(formData);
   const { data, error } = await state.supabase
     .from("opportunities")
@@ -2279,6 +2455,13 @@ async function saveOpportunity(formData) {
     .select("*")
     .single();
   if (error) throw error;
+  await logOpportunityActivity({
+    opportunityId: data.id,
+    title: existing ? "Lead workspace updated" : "Lead created",
+    detail: existing
+      ? buildOpportunityChangeSummary(existing, mapOpportunityFromDb(data))
+      : `${data.business_name || "Lead"} entered the pipeline in ${data.status}.`
+  });
   state.ui.activeOpportunityId = data.id;
   await loadWorkspace();
 }
@@ -2304,6 +2487,11 @@ async function quickUpdateOpportunityStatus(opportunityId, nextStatus) {
     throw error;
   }
 
+  await logOpportunityActivity({
+    opportunityId,
+    title: "Stage updated",
+    detail: `${opportunity.status} moved to ${nextStatus}.`
+  });
   state.ui.notice = `${opportunity.businessName} moved to ${nextStatus}. Admin dashboards will reflect the update automatically.`;
   await loadWorkspace();
 }
@@ -2408,6 +2596,14 @@ async function bulkAssignSelected() {
     throw error;
   }
 
+  await Promise.all(state.ui.selectedOpportunityIds.map((opportunityId) =>
+    logOpportunityActivity({
+      opportunityId,
+      title: "Lead reassigned",
+      detail: `Assigned to ${targetProfile.full_name}.`
+    })
+  ));
+
   state.ui.notice = `${state.ui.selectedOpportunityIds.length} lead(s) reassigned to ${targetProfile.full_name}.`;
   state.ui.bulkAssignUserId = "";
   state.ui.selectedOpportunityIds = [];
@@ -2455,6 +2651,33 @@ async function sendRepInvite({ email, fullName }) {
   state.ui.error = "";
   state.ui.notice = `Invite sent to ${email}. They should confirm using the link that points to ${redirectUrl}.`;
   render();
+}
+
+function buildOpportunityChangeSummary(previous, next) {
+  const changes = [];
+  if (previous.status !== next.status) changes.push(`Stage ${previous.status} -> ${next.status}`);
+  if (previous.assignedUserId !== next.assignedUserId) changes.push(`Reassigned to ${next.assignedRepName}`);
+  if (previous.nextTask !== next.nextTask) changes.push(`Next task updated`);
+  if (previous.nextFollowUpDate !== next.nextFollowUpDate) changes.push(`Follow-up date changed`);
+  if (previous.notes !== next.notes) changes.push(`Notes updated`);
+  if (previous.premiumQuoted !== next.premiumQuoted) changes.push(`Quoted premium changed`);
+  if (previous.premiumBound !== next.premiumBound) changes.push(`Bound premium changed`);
+  return changes.length ? changes.join(" · ") : "Lead details refreshed.";
+}
+
+async function logOpportunityActivity({ opportunityId, title, detail }) {
+  if (!state.supabase || !opportunityId) return;
+  const payload = {
+    opportunity_id: opportunityId,
+    actor_id: state.profile?.id || null,
+    actor_name: state.profile?.full_name || state.session?.user?.email || "System",
+    title,
+    detail: detail || ""
+  };
+  const { error } = await state.supabase.from("opportunity_activity").insert(payload);
+  if (error && !String(error.message || "").includes("opportunity_activity")) {
+    throw error;
+  }
 }
 
 function exportAgencyWorkbook() {

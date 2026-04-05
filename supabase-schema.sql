@@ -32,8 +32,14 @@ create table if not exists public.opportunities (
   business_name text not null default '',
   target_niche text not null default '',
   product_focus text not null default '',
+  contact_name text not null default '',
+  contact_email text not null default '',
+  contact_phone text not null default '',
   carrier text not null default '',
+  incumbent_carrier text not null default '',
   policy_type text not null default 'New',
+  effective_date date,
+  expiration_date date,
   lead_cost numeric(12,2) not null default 0,
   premium_quoted numeric(12,2) not null default 0,
   premium_bound numeric(12,2) not null default 0,
@@ -41,10 +47,21 @@ create table if not exists public.opportunities (
   first_attempt_date date,
   last_activity_date date,
   next_follow_up_date date,
+  next_task text not null default '',
+  task_priority text not null default 'Medium',
   notes text not null default '',
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.opportunities add column if not exists contact_name text not null default '';
+alter table public.opportunities add column if not exists contact_email text not null default '';
+alter table public.opportunities add column if not exists contact_phone text not null default '';
+alter table public.opportunities add column if not exists incumbent_carrier text not null default '';
+alter table public.opportunities add column if not exists effective_date date;
+alter table public.opportunities add column if not exists expiration_date date;
+alter table public.opportunities add column if not exists next_task text not null default '';
+alter table public.opportunities add column if not exists task_priority text not null default 'Medium';
 
 create table if not exists public.coaching_notes (
   id uuid primary key default gen_random_uuid(),
@@ -58,6 +75,16 @@ create table if not exists public.coaching_notes (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   unique (rep_user_id, week_start)
+);
+
+create table if not exists public.opportunity_activity (
+  id uuid primary key default gen_random_uuid(),
+  opportunity_id uuid not null references public.opportunities (id) on delete cascade,
+  actor_id uuid references public.profiles (id) on delete set null,
+  actor_name text not null default '',
+  title text not null default '',
+  detail text not null default '',
+  created_at timestamptz not null default timezone('utc', now())
 );
 
 create or replace function public.handle_new_user()
@@ -132,6 +159,7 @@ alter table public.profiles enable row level security;
 alter table public.app_settings enable row level security;
 alter table public.opportunities enable row level security;
 alter table public.coaching_notes enable row level security;
+alter table public.opportunity_activity enable row level security;
 
 create or replace function public.is_admin(user_id uuid)
 returns boolean
@@ -228,3 +256,31 @@ for all
 to authenticated
 using (public.is_admin(auth.uid()))
 with check (public.is_admin(auth.uid()));
+
+drop policy if exists "activity read own or admin" on public.opportunity_activity;
+create policy "activity read own or admin"
+on public.opportunity_activity
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.opportunities
+    where id = opportunity_id
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "activity insert own or admin" on public.opportunity_activity;
+create policy "activity insert own or admin"
+on public.opportunity_activity
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.opportunities
+    where id = opportunity_id
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
