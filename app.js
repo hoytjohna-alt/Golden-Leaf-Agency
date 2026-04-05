@@ -2071,14 +2071,14 @@ function render() {
 
     ${isAdmin() && state.ui.activeTab === "reports" ? `
     <section class="panel workspace-panel" id="reports">
-      <div class="panel-header">
+      <div class="panel-header reports-topbar">
         <div>
           <h2>Owner Reports</h2>
           <p>Rep performance and source profitability in one place without crowding the main dashboard.</p>
         </div>
       </div>
-      <div class="two-column compact-two-column">
-        <article class="table-card">
+      <div class="two-column compact-two-column reports-grid">
+        <article class="table-card reports-card">
           <div class="panel-header">
             <div>
               <h3>Rep Performance Snapshot</h3>
@@ -2087,7 +2087,7 @@ function render() {
           </div>
           ${renderOwnerRepPerformance(ownerRepPerformanceRows)}
         </article>
-        <article class="table-card">
+        <article class="table-card reports-card">
           <div class="panel-header">
             <div>
               <h3>Lead Source Profitability</h3>
