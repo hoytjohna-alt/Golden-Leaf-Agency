@@ -80,6 +80,7 @@ const state = {
     dateFrom: "",
     dateTo: "",
     activeOpportunityId: null,
+    activeTab: "dashboard",
     bulkAssignUserId: "",
     selectedOpportunityIds: [],
     opportunityView: "board"
@@ -141,6 +142,10 @@ async function loadWorkspace() {
 
     const profile = await withTimeout(fetchProfile(state.session.user.id), WORKSPACE_TIMEOUT_MS);
     state.profile = profile;
+    if (!isAdmin() && state.ui.activeTab === "dashboard") {
+      state.ui.activeTab = "opportunities";
+    }
+    ensureActiveTab();
 
     if (!profile.active) {
       state.profiles = [profile];
@@ -513,6 +518,55 @@ function getPipelineGroups(rows) {
   }));
 }
 
+function getPipelinePhaseGroups(rows) {
+  const phaseDefinitions = [
+    {
+      title: "Fresh Lead Intake",
+      description: "New assignments and first contact work.",
+      statuses: ["New Lead", "Attempted", "Contacted"]
+    },
+    {
+      title: "Active Pipeline",
+      description: "Qualified opportunities and open conversations.",
+      statuses: ["Qualified", "Quoted", "Pending Decision", "Nurture / Recycle"]
+    },
+    {
+      title: "Closed Outcomes",
+      description: "Won and lost deals.",
+      statuses: ["Bound", "Lost"]
+    }
+  ];
+
+  return phaseDefinitions.map((phase) => ({
+    ...phase,
+    columns: phase.statuses.map((status) => ({
+      status,
+      rows: rows.filter((row) => row.status === status)
+    }))
+  }));
+}
+
+function getAvailableTabs() {
+  return [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "opportunities", label: isAdmin() ? "Pipeline" : "My Pipeline" },
+    { id: "scorecards", label: "Scorecards" },
+    { id: "coaching", label: "Coaching" },
+    ...(isAdmin() ? [{ id: "setup", label: "Setup" }] : [])
+  ];
+}
+
+function getDefaultActiveTab() {
+  return isAdmin() ? "dashboard" : "opportunities";
+}
+
+function ensureActiveTab() {
+  const availableTabs = getAvailableTabs().map((tab) => tab.id);
+  if (!availableTabs.includes(state.ui.activeTab)) {
+    state.ui.activeTab = getDefaultActiveTab();
+  }
+}
+
 function summarize(rows) {
   return {
     totalLeads: rows.length,
@@ -646,6 +700,8 @@ function render() {
     return;
   }
 
+  ensureActiveTab();
+
   const allRows = getVisibleOpportunities();
   const timeframeRows = filterRowsByTimeframe(allRows);
   const listRows = getFilteredOpportunityList(allRows);
@@ -654,6 +710,7 @@ function render() {
   const removedProfiles = getRemovedProfiles();
   const opportunityView = getOpportunityView();
   const pipelineGroups = getPipelineGroups(listRows);
+  const pipelinePhaseGroups = getPipelinePhaseGroups(listRows);
   const summary = summarize(timeframeRows);
   const scorecards = getRepScorecards(timeframeRows);
   const roiRows = getRoiRows(timeframeRows);
@@ -666,7 +723,8 @@ function render() {
     ${state.ui.error ? `<section class="panel"><p class="error-banner">${escapeHtml(state.ui.error)}</p></section>` : ""}
     ${state.ui.notice ? `<section class="panel"><p class="notice-banner">${escapeHtml(state.ui.notice)}</p></section>` : ""}
 
-    <section class="panel" id="dashboard">
+    ${state.ui.activeTab === "dashboard" ? `
+    <section class="panel workspace-panel" id="dashboard">
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Agency Dashboard" : "My Pipeline Dashboard"}</h2>
@@ -695,8 +753,10 @@ function render() {
         ${kpiCard("Owner Net Agency Comm", formatCurrency(summary.ownerNetAgencyComm), "After rep payout")}
       </div>
     </section>
+    ` : ""}
 
-    <section class="panel" id="opportunities">
+    ${state.ui.activeTab === "opportunities" ? `
+    <section class="panel workspace-panel" id="opportunities">
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Master Opportunity Log" : "My Opportunity Log"}</h2>
@@ -783,7 +843,7 @@ function render() {
       <div class="two-column">
         <div class="${opportunityView === "board" ? "table-card board-host" : "table-card"}">
           ${opportunityView === "board"
-            ? renderOpportunityBoard(pipelineGroups)
+            ? renderOpportunityBoard(pipelinePhaseGroups)
             : `
               <div class="table-wrap">
                 ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
@@ -802,8 +862,10 @@ function render() {
         </div>
       </div>
     </section>
+    ` : ""}
 
-    <section class="panel" id="scorecards">
+    ${state.ui.activeTab === "scorecards" ? `
+    <section class="panel workspace-panel" id="scorecards">
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Agency Scorecards and ROI" : "My Production Scorecard"}</h2>
@@ -873,8 +935,10 @@ function render() {
         </div>
       </div>
     </section>
+    ` : ""}
 
-    <section class="panel" id="coaching">
+    ${state.ui.activeTab === "coaching" ? `
+    <section class="panel workspace-panel" id="coaching">
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Weekly Coaching" : "My Coaching Notes"}</h2>
@@ -918,9 +982,10 @@ function render() {
         </div>
       </div>
     </section>
+    ` : ""}
 
-    ${isAdmin() ? `
-      <section class="panel" id="setup">
+    ${isAdmin() && state.ui.activeTab === "setup" ? `
+      <section class="panel workspace-panel" id="setup">
         <div class="panel-header">
           <div>
             <h2>Admin Setup</h2>
@@ -1078,13 +1143,19 @@ function renderTopNav() {
   if (isInactiveUser()) {
     return `<a href="#app">Account Status</a>`;
   }
-  return `
-    <a href="#dashboard">Dashboard</a>
-    <a href="#opportunities">${isAdmin() ? "Master Log" : "My Pipeline"}</a>
-    <a href="#scorecards">Scorecards</a>
-    <a href="#coaching">Coaching</a>
-    ${isAdmin() ? '<a href="#setup">Setup</a>' : ""}
-  `;
+  return getAvailableTabs()
+    .map(
+      (tab) => `
+        <button
+          class="tab-button ${state.ui.activeTab === tab.id ? "is-active" : ""}"
+          data-app-tab="${tab.id}"
+          type="button"
+        >
+          ${escapeHtml(tab.label)}
+        </button>
+      `
+    )
+    .join("");
 }
 
 function renderSetupRequired() {
@@ -1309,50 +1380,65 @@ function renderOpportunityTable(rows, selectedRows) {
   `;
 }
 
-function renderOpportunityBoard(groups) {
-  const hasRows = groups.some((group) => group.rows.length);
+function renderOpportunityBoard(phases) {
+  const hasRows = phases.some((phase) => phase.columns.some((column) => column.rows.length));
   if (!hasRows) {
     return document.getElementById("emptyStateTemplate").innerHTML;
   }
 
   return `
-    <div class="board-scroll">
-      <div class="kanban-board">
-        ${groups.map((group) => `
-          <section class="kanban-column" data-stage-drop="${escapeHtml(group.status)}">
-            <header class="kanban-column-header">
-              <div>
-                <h3>${escapeHtml(group.status)}</h3>
-                <p>${group.rows.length} lead${group.rows.length === 1 ? "" : "s"}</p>
-              </div>
-            </header>
-            <div class="kanban-column-body">
-              ${group.rows.map((row) => `
-                <article
-                  class="kanban-card"
-                  draggable="true"
-                  data-card-drag="${escapeHtml(row.id)}"
-                  data-open-opportunity="${escapeHtml(row.id)}"
-                >
-                  <div class="kanban-card-top">
-                    <strong>${escapeHtml(row.businessName)}</strong>
-                    ${row.followUpOverdue ? '<span class="status-pill" data-tone="bad">Overdue</span>' : ""}
-                  </div>
-                  <div class="subtle">${escapeHtml(row.leadNumber)} · ${escapeHtml(row.leadSource)}</div>
-                  <div class="kanban-meta">
-                    <span class="tag">${escapeHtml(row.assignedRepName)}</span>
-                    <span class="tag">${escapeHtml(row.followUpBucket)}</span>
-                  </div>
-                  <div class="kanban-meta">
-                    <span>Quoted ${formatCurrency(row.premiumQuoted)}</span>
-                    <span>Bound ${formatCurrency(row.premiumBound)}</span>
-                  </div>
-                </article>
-              `).join("")}
+    <div class="phase-board">
+      ${phases.map((phase) => `
+        <section class="phase-section">
+          <header class="phase-header">
+            <div>
+              <h3>${escapeHtml(phase.title)}</h3>
+              <p>${escapeHtml(phase.description)}</p>
             </div>
-          </section>
+          </header>
+          <div class="kanban-board">
+            ${phase.columns.map((group) => `
+              <section class="kanban-column" data-stage-drop="${escapeHtml(group.status)}">
+                <header class="kanban-column-header">
+                  <div>
+                    <h3>${escapeHtml(group.status)}</h3>
+                    <p>${group.rows.length} lead${group.rows.length === 1 ? "" : "s"}</p>
+                  </div>
+                </header>
+                <div class="kanban-column-body">
+                  ${group.rows.map((row) => `
+                    <article
+                      class="kanban-card"
+                      draggable="true"
+                      data-card-drag="${escapeHtml(row.id)}"
+                      data-open-opportunity="${escapeHtml(row.id)}"
+                    >
+                      <div class="kanban-card-top">
+                        <strong>${escapeHtml(row.businessName)}</strong>
+                        ${row.followUpOverdue ? '<span class="status-pill" data-tone="bad">Overdue</span>' : ""}
+                      </div>
+                      <div class="subtle">${escapeHtml(row.leadNumber)} · ${escapeHtml(row.leadSource)}</div>
+                      <div class="kanban-meta">
+                        <span class="tag">${escapeHtml(row.assignedRepName)}</span>
+                        <span class="tag">${escapeHtml(row.followUpBucket)}</span>
+                      </div>
+                      <label class="kanban-stage-picker">
+                        Stage
+                        <select data-quick-status="${escapeHtml(row.id)}">
+                          ${state.setup.statuses.map((status) => `<option value="${escapeHtml(status)}" ${row.status === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+                        </select>
+                      </label>
+                      <div class="kanban-meta">
+                        <span>Quoted ${formatCurrency(row.premiumQuoted)}</span>
+                        <span>Bound ${formatCurrency(row.premiumBound)}</span>
+                      </div>
+                    </article>
+                  `).join("")}
+                </div>
+              </section>
+            `).join("")}
+          </div>
         `).join("")}
-      </div>
     </div>
   `;
 }
@@ -1464,6 +1550,13 @@ function bindAppEvents() {
       render();
     });
   }
+
+  document.querySelectorAll("[data-app-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ui.activeTab = button.dataset.appTab;
+      render();
+    });
+  });
 
   document.querySelectorAll("[data-opportunity-view]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1602,6 +1695,20 @@ function bindAppEvents() {
     card.addEventListener("click", () => {
       state.ui.activeOpportunityId = card.dataset.openOpportunity;
       render();
+    });
+  });
+
+  document.querySelectorAll("[data-quick-status]").forEach((select) => {
+    select.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    select.addEventListener("change", async (event) => {
+      try {
+        await quickUpdateOpportunityStatus(event.target.dataset.quickStatus, event.target.value);
+      } catch (error) {
+        state.ui.error = error.message || "Could not update that lead stage.";
+        render();
+      }
     });
   });
 
