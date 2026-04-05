@@ -132,12 +132,15 @@ async function init() {
     }
   });
 
-  state.supabase.auth.onAuthStateChange(async (event, session) => {
+  state.supabase.auth.onAuthStateChange((event, session) => {
     state.session = session;
     if (session?.user) {
-      if (event === "SIGNED_IN") {
-        state.profile = null;
-        await loadWorkspace({ showLoading: true });
+      const sameUser = state.profile?.id === session.user.id;
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") && !sameUser) {
+        window.setTimeout(() => {
+          state.profile = null;
+          void loadWorkspace({ showLoading: true });
+        }, 0);
       }
     } else {
       state.profile = null;
