@@ -10,6 +10,8 @@ const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnon
 const APP_BUILD_ID = typeof __APP_BUILD_ID__ !== "undefined" ? __APP_BUILD_ID__ : "v1";
 const APP_BUILD_STORAGE_KEY = "golden-leaf-app-build-id";
 const APP_RECOVERY_STORAGE_KEY = "golden-leaf-app-recovery-build-id";
+const AUTH_STORAGE_PREFIX = "golden-leaf-auth";
+const AUTH_STORAGE_KEY = `${AUTH_STORAGE_PREFIX}-${APP_BUILD_ID}`;
 const VERSION_CHECK_PATH = "/version.json";
 const WORKSPACE_TIMEOUT_MS = 10000;
 const VERSION_CHECK_INTERVAL_MS = 45000;
@@ -112,6 +114,7 @@ async function init() {
 
   state.supabase = createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
     auth: {
+      storageKey: AUTH_STORAGE_KEY,
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true
@@ -195,9 +198,21 @@ async function loadWorkspace() {
 function handleBuildVersionChange() {
   const previousBuildId = localStorage.getItem(APP_BUILD_STORAGE_KEY);
   if (previousBuildId !== APP_BUILD_ID) {
+    clearStaleBuildSessions(previousBuildId);
     localStorage.setItem(APP_BUILD_STORAGE_KEY, APP_BUILD_ID);
     resetTransientUiState();
   }
+}
+
+function clearStaleBuildSessions(previousBuildId) {
+  if (previousBuildId) {
+    localStorage.removeItem(`${AUTH_STORAGE_PREFIX}-${previousBuildId}`);
+  }
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith(`${AUTH_STORAGE_PREFIX}-`) && key !== AUTH_STORAGE_KEY)
+    .forEach((key) => {
+      localStorage.removeItem(key);
+    });
 }
 
 function resetTransientUiState() {
