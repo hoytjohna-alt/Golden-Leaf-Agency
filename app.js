@@ -805,6 +805,7 @@ function inferBiggestGap(rows, leads) {
 }
 
 function render() {
+  document.body.classList.toggle("app-shell-auth", !state.session);
   document.body.classList.toggle("app-shell-logged-in", Boolean(state.session && !isInactiveUser()));
   heroActionsEl.innerHTML = renderHeroActions();
   topNavEl.innerHTML = renderTopNav();
@@ -1344,7 +1345,7 @@ function renderHeroActions() {
     return `<a class="button button-primary" href="#app">Setup Backend</a>`;
   }
   if (!state.session) {
-    return `<span class="pill">Waiting for login</span>`;
+    return "";
   }
   return `
     <div class="auth-summary">
