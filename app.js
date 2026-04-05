@@ -2343,7 +2343,7 @@ function render() {
 
     ${isAdmin() && state.ui.activeTab === "setup" ? `
       <section class="panel workspace-panel" id="setup">
-        <div class="panel-header">
+        <div class="panel-header setup-topbar">
           <div>
             <h2>Admin Setup</h2>
             <p>Only the admin can manage global assumptions, producer roster, and dropdown lists.</p>
@@ -2366,14 +2366,14 @@ function render() {
         </div>
 
         ${state.ui.setupTab === "users" ? `
-          <article class="table-card">
+          <article class="table-card setup-card">
             <div class="panel-header">
               <div>
                 <h3>Users</h3>
                 <p>Invite reps directly from the app, then manage role and status once they activate.</p>
               </div>
             </div>
-            <form id="inviteRepForm" class="invite-form">
+            <form id="inviteRepForm" class="invite-form setup-invite-form">
               <label>
                 Rep Name
                 <input name="fullName" placeholder="Producer name" required />
@@ -2454,8 +2454,8 @@ function render() {
         ` : ""}
 
         ${state.ui.setupTab === "routing" ? `
-          <div class="section-stack">
-            <article class="table-card">
+          <div class="section-stack setup-routing-stack">
+            <article class="table-card setup-card">
               <div class="panel-header">
                 <div>
                   <h3>Assignment Automation</h3>
@@ -2480,7 +2480,7 @@ function render() {
               </div>
               <p class="notice">Rep-created leads stay with the rep who entered them. Self-generated leads are never routed away from the creator. Auto assign only applies to owner-entered or imported leads left on <code>Auto Assign</code>.</p>
             </article>
-            <article class="table-card">
+            <article class="table-card setup-card">
               <div class="panel-header">
                 <div>
                   <h3>Lead Source Routing</h3>
@@ -2519,7 +2519,7 @@ function render() {
                 </table>
               </div>
             </article>
-            <article class="table-card">
+            <article class="table-card setup-card">
               <div class="panel-header">
                 <div>
                   <h3>Bulk Lead Import</h3>
@@ -2527,7 +2527,7 @@ function render() {
                 </div>
                 <button class="button button-ghost" id="downloadLeadImportTemplateButton" type="button">Download CSV Template</button>
               </div>
-              <div class="import-controls">
+              <div class="import-controls setup-import-controls">
                 <label class="mini-card">
                   Lead File
                   <input id="leadImportFileInput" type="file" accept=".csv,.xlsx,.xls" />
@@ -2576,7 +2576,7 @@ function render() {
                 </div>
               ` : ""}
             </article>
-            <article class="table-card">
+            <article class="table-card setup-card">
               <div class="panel-header">
                 <div>
                   <h3>Rep Workload</h3>
@@ -2607,7 +2607,7 @@ function render() {
         ` : ""}
 
         ${state.ui.setupTab === "assumptions" ? `
-          <article class="table-card">
+          <article class="table-card setup-card">
             <div class="panel-header">
               <div>
                 <h3>Agency Assumptions</h3>
@@ -2617,7 +2617,7 @@ function render() {
                 ${state.ui.assumptionEditing ? "Done Editing" : "Edit Assumptions"}
               </button>
             </div>
-            <div class="four-column compact-four-column">
+            <div class="four-column compact-four-column setup-assumptions-grid">
               ${Object.entries(state.setup.assumptions).map(([key, value]) => `
                 <label class="mini-card">
                   ${humanize(key)}
@@ -2629,7 +2629,7 @@ function render() {
         ` : ""}
 
         ${state.ui.setupTab === "carriers" ? `
-          <article class="table-card">
+          <article class="table-card setup-card">
             <div class="panel-header">
               <div>
                 <h3>Carrier Commission Table</h3>
