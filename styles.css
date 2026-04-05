@@ -422,9 +422,29 @@ main {
   gap: 16px;
 }
 
+.single-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .lead-workspace-panel {
   display: grid;
   gap: 16px;
+}
+
+.opportunity-stage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  gap: 12px;
+}
+
+.stage-workspace-panel {
+  align-content: start;
+}
+
+.stage-workspace-panel .timeline-list {
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .workspace-overview-grid {
@@ -1129,7 +1149,8 @@ tbody tr:hover {
 
   .two-column,
   .hero,
-  .auth-panel {
+  .auth-panel,
+  .opportunity-stage-layout {
     grid-template-columns: 1fr;
   }
 

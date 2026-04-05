@@ -90,6 +90,7 @@ const state = {
     bulkAssignUserId: "",
     selectedOpportunityIds: [],
     opportunityView: "board",
+    opportunityTab: "stage",
     setupTab: "users",
     carrierEditing: false,
     assumptionEditing: false
@@ -677,6 +678,14 @@ function getSetupTabs() {
   ];
 }
 
+function getOpportunityTabs() {
+  return [
+    { id: "stage", label: "Move Stages" },
+    { id: "update", label: "Update Leads" },
+    { id: "create", label: "New Lead" }
+  ];
+}
+
 function getDefaultActiveTab() {
   return isAdmin() ? "dashboard" : "opportunities";
 }
@@ -1125,12 +1134,23 @@ function render() {
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Master Opportunity Log" : "My Opportunity Log"}</h2>
-          <p>${isAdmin() ? "Admin can assign, edit, and inspect every producer pipeline." : "Your pipeline now works as a live status board for faster daily lead management."}</p>
+          <p>${isAdmin() ? "Separate create, update, and stage movement into cleaner working modes." : "Work new leads, updates, and stage changes in dedicated tabs instead of one crowded screen."}</p>
         </div>
-        <div class="view-toggle">
-          <button class="button ${opportunityView === "board" ? "button-primary" : "button-ghost"}" data-opportunity-view="board" type="button">Board</button>
-          <button class="button ${opportunityView === "table" ? "button-primary" : "button-ghost"}" data-opportunity-view="table" type="button">Table</button>
-        </div>
+      </div>
+      <div class="section-tabs" role="tablist" aria-label="Pipeline work modes">
+        ${getOpportunityTabs()
+          .map(
+            (tab) => `
+              <button
+                class="section-tab ${state.ui.opportunityTab === tab.id ? "is-active" : ""}"
+                data-opportunity-tab="${tab.id}"
+                type="button"
+              >
+                ${escapeHtml(tab.label)}
+              </button>
+            `
+          )
+          .join("")}
       </div>
       <div class="table-card filter-card">
         <div class="toolbar">
@@ -1176,7 +1196,7 @@ function render() {
             <div class="subtle">${listRows.length} visible</div>
           </div>
         </div>
-        ${isAdmin() ? `
+        ${isAdmin() && state.ui.opportunityTab === "update" ? `
           <div class="bulk-card">
             <div>
               <strong>${state.ui.selectedOpportunityIds.length} selected</strong>
@@ -1196,27 +1216,38 @@ function render() {
             </div>
           </div>
         ` : ""}
-        <div class="stage-strip">
-          ${pipelineGroups.map((group) => `
-            <article class="stage-pill-card">
-              <h4>${escapeHtml(group.status)}</h4>
-              <strong>${group.rows.length}</strong>
-            </article>
-          `).join("")}
-        </div>
+        ${state.ui.opportunityTab === "stage" ? `
+          <div class="stage-strip">
+            ${pipelineGroups.map((group) => `
+              <article class="stage-pill-card">
+                <h4>${escapeHtml(group.status)}</h4>
+                <strong>${group.rows.length}</strong>
+              </article>
+            `).join("")}
+          </div>
+        ` : ""}
       </div>
-      <div class="two-column">
-        <div class="${opportunityView === "board" ? "table-card board-host" : "table-card"}">
-          ${opportunityView === "board"
-            ? renderOpportunityBoard(pipelinePhaseGroups)
-            : `
-              <div class="table-wrap">
-                ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
-              </div>
-            `}
+      ${state.ui.opportunityTab === "create" ? `
+        ${renderCreateLeadWorkspace()}
+      ` : ""}
+      ${state.ui.opportunityTab === "update" ? `
+        <div class="two-column">
+          <div class="table-card">
+            <div class="table-wrap">
+              ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
+            </div>
+          </div>
+          ${renderLeadWorkspace(activeOpportunity, activeOpportunityTimeline)}
         </div>
-        ${renderLeadWorkspace(activeOpportunity, activeOpportunityTimeline)}
-      </div>
+      ` : ""}
+      ${state.ui.opportunityTab === "stage" ? `
+        <div class="opportunity-stage-layout">
+          <div class="table-card board-host">
+            ${renderOpportunityBoard(pipelinePhaseGroups)}
+          </div>
+          ${renderStageWorkspace(activeOpportunity, activeOpportunityTimeline)}
+        </div>
+      ` : ""}
     </section>
     ` : ""}
 
@@ -1842,6 +1873,83 @@ function renderLeadWorkspace(row, timeline) {
   `;
 }
 
+function renderCreateLeadWorkspace() {
+  const row = blankOpportunity();
+  return `
+    <div class="lead-workspace single-workspace">
+      <article class="form-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>New Lead Intake</h3>
+            <p>Enter the lead cleanly here, then move into update and stage management after it is created.</p>
+          </div>
+        </div>
+        ${renderOpportunityForm(row)}
+      </article>
+    </div>
+  `;
+}
+
+function renderStageWorkspace(row, timeline) {
+  if (!row.id) {
+    return `
+      <article class="table-card lead-workspace-panel stage-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>Stage Movement Focus</h3>
+            <p>Select a lead card to review its current status and recent activity.</p>
+          </div>
+        </div>
+        <div class="empty-state">
+          <h3>Pick a lead from the board</h3>
+          <p>Drag it between stages or use the stage selector on the card, then review the timeline here.</p>
+        </div>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="table-card lead-workspace-panel stage-workspace-panel">
+      <div class="panel-header">
+        <div>
+          <h3>${escapeHtml(row.businessName || "Selected Lead")}</h3>
+          <p>${escapeHtml(row.leadNumber)} · ${escapeHtml(row.assignedRepName || "Unassigned")}</p>
+        </div>
+        <span class="pill">${escapeHtml(row.status)}</span>
+      </div>
+      <div class="workspace-overview-grid">
+        <article class="mini-card">
+          <h3>Next Task</h3>
+          <strong>${escapeHtml(row.nextTask || "Not set")}</strong>
+          <div class="stat-meta">${escapeHtml(row.nextFollowUpDate || "No follow-up date")}</div>
+        </article>
+        <article class="mini-card">
+          <h3>Last Activity</h3>
+          <strong>${escapeHtml(row.lastActivityDate || "Not logged")}</strong>
+          <div class="stat-meta">${row.daysOpen} days open</div>
+        </article>
+        <article class="mini-card">
+          <h3>Quoted Premium</h3>
+          <strong>${formatCurrency(row.premiumQuoted)}</strong>
+          <div class="stat-meta">${escapeHtml(row.carrier || "No carrier")}</div>
+        </article>
+        <article class="mini-card">
+          <h3>Bound Premium</h3>
+          <strong>${formatCurrency(row.premiumBound)}</strong>
+          <div class="stat-meta">${escapeHtml(row.policyType || "Policy type not set")}</div>
+        </article>
+      </div>
+      <div class="workspace-form-section">
+        <div class="workspace-section-header">
+          <h4>Recent Activity</h4>
+          <p>Keep an eye on the latest movement without leaving the board.</p>
+        </div>
+        ${renderOpportunityTimeline(row, timeline)}
+      </div>
+    </article>
+  `;
+}
+
 function renderOpportunityTimeline(row, timeline) {
   if (!row.id) {
     return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, status changes, notes, and assignments will appear here.</p></div>`;
@@ -2278,9 +2386,9 @@ function bindAppEvents() {
     });
   });
 
-  document.querySelectorAll("[data-opportunity-view]").forEach((button) => {
+  document.querySelectorAll("[data-opportunity-tab]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.ui.opportunityView = button.dataset.opportunityView;
+      state.ui.opportunityTab = button.dataset.opportunityTab;
       render();
     });
   });
@@ -2407,6 +2515,8 @@ function bindAppEvents() {
   document.querySelectorAll("[data-select-opportunity]").forEach((row) => {
     row.addEventListener("click", () => {
       state.ui.activeOpportunityId = row.dataset.selectOpportunity;
+      state.ui.activeTab = "opportunities";
+      state.ui.opportunityTab = "update";
       render();
     });
   });
@@ -2414,6 +2524,8 @@ function bindAppEvents() {
   document.querySelectorAll("[data-open-opportunity]").forEach((card) => {
     card.addEventListener("click", () => {
       state.ui.activeOpportunityId = card.dataset.openOpportunity;
+      state.ui.activeTab = "opportunities";
+      state.ui.opportunityTab = "stage";
       render();
     });
   });
@@ -2513,6 +2625,7 @@ function bindAppEvents() {
   if (newOpportunityButton) {
     newOpportunityButton.addEventListener("click", () => {
       state.ui.activeOpportunityId = null;
+      state.ui.opportunityTab = "create";
       render();
     });
   }
@@ -2728,6 +2841,7 @@ async function saveOpportunity(formData) {
       : `${data.business_name || "Lead"} entered the pipeline in ${data.status}.`
   });
   state.ui.activeOpportunityId = data.id;
+  state.ui.opportunityTab = existing ? "update" : "stage";
   await loadWorkspace();
 }
 
@@ -2757,6 +2871,7 @@ async function quickUpdateOpportunityStatus(opportunityId, nextStatus) {
     title: "Stage updated",
     detail: `${opportunity.status} moved to ${nextStatus}.`
   });
+  state.ui.opportunityTab = "stage";
   state.ui.notice = `${opportunity.businessName} moved to ${nextStatus}. Admin dashboards will reflect the update automatically.`;
   await loadWorkspace();
 }
