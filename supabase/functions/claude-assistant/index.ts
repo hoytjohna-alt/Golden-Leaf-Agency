@@ -27,9 +27,13 @@ Deno.serve(async (req) => {
       throw new Error("Assistant function is missing required environment variables.");
     }
 
-    const authorization = req.headers.get("Authorization") || "";
+    const authorization = req.headers.get("Authorization") || req.headers.get("authorization") || "";
     if (!authorization) {
       return json({ error: "Missing authorization header." }, 401);
+    }
+    const accessToken = authorization.replace(/^Bearer\s+/i, "").trim();
+    if (!accessToken) {
+      return json({ error: "Missing bearer token." }, 401);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -40,18 +44,16 @@ Deno.serve(async (req) => {
       }
     });
 
-    const {
-      data: { user },
-      error: userError
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return json({ error: "Could not validate the signed-in user." }, 401);
+    const jwtPayload = decodeJwt(accessToken);
+    const userId = String(jwtPayload?.sub || "").trim();
+    if (!userId) {
+      return json({ error: "Could not read the signed-in user from the access token." }, 401);
     }
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id, email, full_name, role, active")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
     if (profileError || !profile) {
       return json({ error: "Could not load the user profile." }, 403);
@@ -202,6 +204,19 @@ function summarizeMetrics(opportunities: Array<Record<string, unknown>>, activit
     renewalsDueSoon,
     touches
   };
+}
+
+function decodeJwt(token: string): Record<string, unknown> | null {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const decoded = atob(padded);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
 }
 
 function json(payload: unknown, status = 200) {
