@@ -30,6 +30,7 @@ This app is now set up for:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_PUBLISHABLE_KEY`
    - `VITE_APP_URL`
+   - `VITE_APP_BUILD_ID`
 3. Install dependencies:
 
 ```bash
@@ -107,6 +108,7 @@ In Render, add:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_APP_URL`
+- `VITE_APP_BUILD_ID`
 
 Use the same values from Supabase.
 

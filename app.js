@@ -6,6 +6,8 @@ const APP_CONFIG = {
   appUrl: import.meta.env.VITE_APP_URL || ""
 };
 const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
+const APP_BUILD_ID = import.meta.env.VITE_APP_BUILD_ID || "v1";
+const APP_BUILD_STORAGE_KEY = "golden-leaf-app-build-id";
 
 const seedSettings = {
   assumptions: {
@@ -65,6 +67,7 @@ const state = {
   ui: {
     loading: true,
     authLoading: false,
+    recoveringSession: false,
     error: "",
     notice: "",
     timeframe: "all",
@@ -88,6 +91,8 @@ const topNavEl = document.getElementById("topNav");
 init();
 
 async function init() {
+  handleBuildVersionChange();
+
   if (!SUPABASE_READY) {
     state.ui.loading = false;
     render();
@@ -155,6 +160,7 @@ async function loadWorkspace() {
     state.opportunities = opportunities;
     state.coachingNotes = coachingNotes;
     state.profiles = profiles;
+    state.ui.recoveringSession = false;
     state.ui.selectedOpportunityIds = [];
     state.ui.loading = false;
     render();
@@ -162,7 +168,27 @@ async function loadWorkspace() {
     console.error(error);
     state.ui.loading = false;
     state.ui.error = error.message || "Could not load the workspace.";
+    state.ui.recoveringSession = true;
     render();
+  }
+}
+
+function handleBuildVersionChange() {
+  const previousBuildId = localStorage.getItem(APP_BUILD_STORAGE_KEY);
+  if (previousBuildId !== APP_BUILD_ID) {
+    localStorage.setItem(APP_BUILD_STORAGE_KEY, APP_BUILD_ID);
+    state.ui.notice = previousBuildId
+      ? "The app was updated to a new version. Refreshing your local session state."
+      : state.ui.notice;
+    state.ui.search = "";
+    state.ui.repFilter = "All";
+    state.ui.sourceFilter = "All";
+    state.ui.statusFilter = "All";
+    state.ui.dateFrom = "";
+    state.ui.dateTo = "";
+    state.ui.activeOpportunityId = null;
+    state.ui.bulkAssignUserId = "";
+    state.ui.selectedOpportunityIds = [];
   }
 }
 
@@ -566,6 +592,13 @@ function render() {
   if (isInactiveUser()) {
     appEl.innerHTML = renderInactiveUser();
     bindShellEvents();
+    return;
+  }
+
+  if (state.ui.recoveringSession) {
+    appEl.innerHTML = renderRecoveryState();
+    bindShellEvents();
+    bindAppEvents();
     return;
   }
 
@@ -1086,6 +1119,21 @@ function renderInactiveUser() {
   `;
 }
 
+function renderRecoveryState() {
+  return `
+    <section class="panel">
+      <div class="empty-state">
+        <h3>Session Needs Refresh</h3>
+        <p>The app updated or your saved browser session fell out of sync. You can reset the local session without manually clearing site data.</p>
+        <div class="form-actions recovery-actions">
+          <button class="button button-primary" id="resetSessionButton" type="button">Reset Session</button>
+          <button class="button button-ghost" id="reloadAppButton" type="button">Reload App</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderOpportunityForm(row) {
   const assigneeOptions = (isAdmin() ? state.profiles.filter((item) => item.active) : [state.profile])
     .map((profile) => `<option value="${profile.id}" ${row.assignedUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`)
@@ -1346,6 +1394,20 @@ function bindShellEvents() {
   if (signOutButton) {
     signOutButton.addEventListener("click", async () => {
       await state.supabase.auth.signOut();
+    });
+  }
+
+  const resetSessionButton = document.getElementById("resetSessionButton");
+  if (resetSessionButton) {
+    resetSessionButton.addEventListener("click", async () => {
+      await resetLocalSession();
+    });
+  }
+
+  const reloadAppButton = document.getElementById("reloadAppButton");
+  if (reloadAppButton) {
+    reloadAppButton.addEventListener("click", () => {
+      window.location.reload();
     });
   }
 }
@@ -1952,4 +2014,24 @@ async function removeUserFromApp(profileId) {
   await persistProfile(profileId, { active: false });
   state.ui.notice = `${targetProfile.full_name} was removed from the active app roster.`;
   render();
+}
+
+async function resetLocalSession() {
+  state.ui.error = "";
+  state.ui.notice = "Resetting local session and reloading the app.";
+  state.ui.recoveringSession = false;
+  state.ui.search = "";
+  state.ui.repFilter = "All";
+  state.ui.sourceFilter = "All";
+  state.ui.statusFilter = "All";
+  state.ui.dateFrom = "";
+  state.ui.dateTo = "";
+  state.ui.activeOpportunityId = null;
+  state.ui.bulkAssignUserId = "";
+  state.ui.selectedOpportunityIds = [];
+  localStorage.removeItem(APP_BUILD_STORAGE_KEY);
+  if (state.supabase) {
+    await state.supabase.auth.signOut({ scope: "local" });
+  }
+  window.location.reload();
 }
