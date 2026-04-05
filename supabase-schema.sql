@@ -15,6 +15,7 @@ create table if not exists public.app_settings (
   singleton_key text not null unique default 'default',
   assumptions jsonb not null default '{}'::jsonb,
   routing_rules jsonb not null default '{}'::jsonb,
+  communication_settings jsonb not null default '{}'::jsonb,
   lead_sources jsonb not null default '[]'::jsonb,
   statuses jsonb not null default '[]'::jsonb,
   products jsonb not null default '[]'::jsonb,
@@ -24,6 +25,7 @@ create table if not exists public.app_settings (
 );
 
 alter table public.app_settings add column if not exists routing_rules jsonb not null default '{}'::jsonb;
+alter table public.app_settings add column if not exists communication_settings jsonb not null default '{}'::jsonb;
 
 create table if not exists public.opportunities (
   id uuid primary key default gen_random_uuid(),
@@ -116,6 +118,29 @@ create table if not exists public.opportunity_attachments (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.user_calendar_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  provider text not null check (provider in ('google', 'outlook')),
+  provider_email text not null default '',
+  access_token text not null default '',
+  refresh_token text not null default '',
+  token_scope text not null default '',
+  expires_at timestamptz,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  unique (user_id, provider)
+);
+
+create table if not exists public.calendar_oauth_states (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  provider text not null check (provider in ('google', 'outlook')),
+  state_token text not null unique,
+  return_to text not null default '',
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 insert into storage.buckets (id, name, public)
 values ('opportunity-files', 'opportunity-files', false)
 on conflict (id) do nothing;
@@ -153,6 +178,7 @@ insert into public.app_settings (
   singleton_key,
   assumptions,
   routing_rules,
+  communication_settings,
   lead_sources,
   statuses,
   products,
@@ -176,6 +202,12 @@ values (
     "mode": "round_robin",
     "roundRobinCursor": 0,
     "sourceRules": []
+  }'::jsonb,
+  '{
+    "emailSubjectTemplate": "{{businessName}} follow-up from Golden Leaf Agency",
+    "emailBodyTemplate": "Hi {{contactName}},\n\nThis is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}\n\nYou can reply here if you have questions.\n\nThanks,\n{{repName}}",
+    "smsBodyTemplate": "Hi {{contactName}}, this is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}",
+    "replyToEmail": ""
   }'::jsonb,
   '["Purchased Leads","Warm Transfer","Referral","Website / Organic","Partner / Network","Recycled Lead","Self-Generated"]'::jsonb,
   '["New Lead","Attempted","Contacted","Qualified","Quoted","Pending Decision","Bound","Lost","Nurture / Recycle"]'::jsonb,
@@ -201,6 +233,8 @@ alter table public.opportunities enable row level security;
 alter table public.coaching_notes enable row level security;
 alter table public.opportunity_activity enable row level security;
 alter table public.opportunity_attachments enable row level security;
+alter table public.user_calendar_connections enable row level security;
+alter table public.calendar_oauth_states enable row level security;
 
 create or replace function public.is_admin(user_id uuid)
 returns boolean
@@ -253,6 +287,22 @@ for all
 to authenticated
 using (public.is_admin(auth.uid()))
 with check (public.is_admin(auth.uid()));
+
+drop policy if exists "calendar connections service only" on public.user_calendar_connections;
+create policy "calendar connections service only"
+on public.user_calendar_connections
+for all
+to authenticated
+using (false)
+with check (false);
+
+drop policy if exists "calendar oauth states service only" on public.calendar_oauth_states;
+create policy "calendar oauth states service only"
+on public.calendar_oauth_states
+for all
+to authenticated
+using (false)
+with check (false);
 
 drop policy if exists "opportunities read own or admin" on public.opportunities;
 create policy "opportunities read own or admin"

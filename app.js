@@ -17,6 +17,12 @@ const WORKSPACE_TIMEOUT_MS = 10000;
 const VERSION_CHECK_INTERVAL_MS = 45000;
 const ATTACHMENTS_BUCKET = "opportunity-files";
 const ASSISTANT_FUNCTION_NAME = "claude-assistant";
+const GOOGLE_CALENDAR_STATUS_FUNCTION = "google-calendar-status";
+const GOOGLE_CALENDAR_CONNECT_FUNCTION = "google-calendar-connect";
+const GOOGLE_CALENDAR_DISCONNECT_FUNCTION = "google-calendar-disconnect";
+const GOOGLE_CALENDAR_CREATE_EVENT_FUNCTION = "google-calendar-create-event";
+const COMMUNICATION_STATUS_FUNCTION = "communication-status";
+const SEND_REMINDER_FUNCTION = "send-reminder";
 
 const seedSettings = {
   assumptions: {
@@ -35,6 +41,12 @@ const seedSettings = {
     mode: "round_robin",
     roundRobinCursor: 0,
     sourceRules: []
+  },
+  communicationSettings: {
+    emailSubjectTemplate: "{{businessName}} follow-up from Golden Leaf Agency",
+    emailBodyTemplate: "Hi {{contactName}},\n\nThis is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}\n\nYou can reply here if you have questions.\n\nThanks,\n{{repName}}",
+    smsBodyTemplate: "Hi {{contactName}}, this is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}",
+    replyToEmail: ""
   },
   leadSources: [
     "Purchased Leads",
@@ -81,6 +93,8 @@ const state = {
   opportunityActivities: [],
   opportunityAttachments: [],
   coachingNotes: [],
+  calendarConnection: null,
+  communicationStatus: null,
   ui: {
     loading: true,
     authLoading: false,
@@ -114,7 +128,10 @@ const state = {
     assistantLoading: false,
     assistantError: "",
     assistantMessages: [],
-    assistantInput: ""
+    assistantInput: "",
+    calendarSyncLoading: false,
+    reminderSending: false,
+    reminderEditing: false
   }
 };
 
@@ -131,6 +148,7 @@ const assistantRootEl = document.getElementById("assistantRoot");
 init();
 
 async function init() {
+  handleAppQueryState();
   handleBuildVersionChange();
   setupVersionWatchers();
 
@@ -178,6 +196,23 @@ async function init() {
   }
 }
 
+function handleAppQueryState() {
+  const url = new URL(window.location.href);
+  const connected = url.searchParams.get("calendar");
+  const calendarError = url.searchParams.get("calendar_error");
+  if (connected === "google-connected") {
+    state.ui.notice = "Google Calendar connected successfully.";
+  }
+  if (calendarError) {
+    state.ui.error = calendarError;
+  }
+  if (connected || calendarError) {
+    url.searchParams.delete("calendar");
+    url.searchParams.delete("calendar_error");
+    window.history.replaceState({}, "", url.toString());
+  }
+}
+
 async function loadWorkspace({ showLoading = true } = {}) {
   if (workspaceLoadPromise) {
     return workspaceLoadPromise;
@@ -210,13 +245,15 @@ async function loadWorkspace({ showLoading = true } = {}) {
         return;
       }
 
-      const [settings, opportunities, coachingNotes, profiles, opportunityActivities, opportunityAttachments] = await withTimeout(Promise.all([
+      const [settings, opportunities, coachingNotes, profiles, opportunityActivities, opportunityAttachments, calendarConnection, communicationStatus] = await withTimeout(Promise.all([
         fetchSettings(),
         fetchOpportunities(),
         fetchCoachingNotes(),
         isAdmin() ? fetchProfiles() : Promise.resolve([profile]),
         fetchOpportunityActivities(),
-        fetchOpportunityAttachments()
+        fetchOpportunityAttachments(),
+        fetchCalendarConnectionStatus(),
+        fetchCommunicationStatus()
       ]), WORKSPACE_TIMEOUT_MS);
 
       state.setup = settings;
@@ -225,6 +262,8 @@ async function loadWorkspace({ showLoading = true } = {}) {
       state.profiles = profiles;
       state.opportunityActivities = opportunityActivities;
       state.opportunityAttachments = opportunityAttachments;
+      state.calendarConnection = calendarConnection;
+      state.communicationStatus = communicationStatus;
       state.ui.recoveringSession = false;
       state.ui.selectedOpportunityIds = [];
       state.ui.loading = false;
@@ -424,7 +463,7 @@ async function fetchProfiles() {
 async function fetchSettings() {
   const { data, error } = await state.supabase
     .from("app_settings")
-    .select("assumptions, routing_rules, lead_sources, statuses, products, carriers")
+    .select("assumptions, routing_rules, communication_settings, lead_sources, statuses, products, carriers")
     .eq("singleton_key", "default")
     .single();
   if (error) throw error;
@@ -434,6 +473,10 @@ async function fetchSettings() {
       ...seedSettings.routingRules,
       ...(data.routing_rules || {}),
       sourceRules: Array.isArray(data.routing_rules?.sourceRules) ? data.routing_rules.sourceRules : seedSettings.routingRules.sourceRules
+    },
+    communicationSettings: {
+      ...seedSettings.communicationSettings,
+      ...(data.communication_settings || {})
     },
     leadSources: data.lead_sources?.length ? data.lead_sources : seedSettings.leadSources,
     statuses: data.statuses?.length ? data.statuses : seedSettings.statuses,
@@ -487,6 +530,26 @@ async function fetchCoachingNotes() {
     .order("week_start", { ascending: false });
   if (error) throw error;
   return data || [];
+}
+
+async function fetchCalendarConnectionStatus() {
+  if (!state.supabase || !state.session) return null;
+  try {
+    const payload = await callEdgeFunction(GOOGLE_CALENDAR_STATUS_FUNCTION);
+    return payload.connection || null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCommunicationStatus() {
+  if (!state.supabase || !state.session) return null;
+  try {
+    const payload = await callEdgeFunction(COMMUNICATION_STATUS_FUNCTION);
+    return payload || null;
+  } catch {
+    return null;
+  }
 }
 
 function mapOpportunityFromDb(row) {
@@ -1190,6 +1253,7 @@ function getAvailableTabs() {
   return [
     { id: "dashboard", label: "Dashboard" },
     { id: "opportunities", label: isAdmin() ? "Pipeline" : "My Pipeline" },
+    { id: "integrations", label: "Integrations" },
     ...(isAdmin() ? [{ id: "reports", label: "Reports" }] : []),
     { id: "scorecards", label: "Scorecards" },
     { id: "coaching", label: "Coaching" },
@@ -1780,6 +1844,8 @@ function render() {
       </div>
     </section>
     ` : ""}
+
+    ${state.ui.activeTab === "integrations" ? renderIntegrations() : ""}
 
     ${isAdmin() && state.ui.activeTab === "reports" ? `
     <section class="panel workspace-panel" id="reports">
@@ -2563,6 +2629,105 @@ function renderRecoveryState() {
   `;
 }
 
+function renderIntegrations() {
+  const googleConnected = Boolean(state.calendarConnection?.connected);
+  const emailReady = Boolean(state.communicationStatus?.email?.configured);
+  const smsReady = Boolean(state.communicationStatus?.sms?.configured);
+  return `
+    <section class="panel workspace-panel" id="integrations">
+      <div class="panel-header">
+        <div>
+          <h2>Integrations</h2>
+          <p>Connect tools that support day-to-day producer work and owner visibility.</p>
+        </div>
+      </div>
+      <div class="two-column compact-two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>Google Calendar</h3>
+              <p>Push follow-ups and appointments to your Google calendar directly from a lead.</p>
+            </div>
+            <span class="tag">${googleConnected ? "Connected" : "Not Connected"}</span>
+          </div>
+          <div class="action-stack">
+            <div class="mini-note">
+              ${googleConnected
+                ? `Connected as ${escapeHtml(state.calendarConnection.email || "Google account")}.`
+                : "Connect your Google account first, then reps and admins can create calendar events from lead follow-ups and appointments."}
+            </div>
+            <div class="form-actions">
+              <button class="button button-primary" id="connectGoogleCalendarButton" type="button" ${state.ui.calendarSyncLoading || googleConnected ? "disabled" : ""}>
+                ${state.ui.calendarSyncLoading && !googleConnected ? "Connecting..." : "Connect Google Calendar"}
+              </button>
+              <button class="button button-ghost" id="disconnectGoogleCalendarButton" type="button" ${state.ui.calendarSyncLoading || !googleConnected ? "disabled" : ""}>
+                ${state.ui.calendarSyncLoading && googleConnected ? "Disconnecting..." : "Disconnect"}
+              </button>
+            </div>
+            <p class="notice">This connection is user-specific. Each rep can connect their own calendar, while admins can connect theirs separately.</p>
+          </div>
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>Outlook Calendar</h3>
+              <p>Microsoft calendar sync is next on deck after Google.</p>
+            </div>
+            <span class="tag">Coming Next</span>
+          </div>
+          <div class="empty-state">
+            <h3>Google first</h3>
+            <p>We started with Google Calendar because it is the most common fit for your current team. Outlook will use the same role-safe pattern after this.</p>
+          </div>
+        </article>
+      </div>
+      <div class="two-column compact-two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>Email and Text Delivery</h3>
+              <p>Provider-backed reminder sending for follow-ups and nudges.</p>
+            </div>
+          </div>
+          <div class="dashboard-grid compact-dashboard-grid">
+            ${statCard("Email", emailReady ? "Ready" : "Not Ready", emailReady ? "Resend configured" : "Add provider secrets")}
+            ${statCard("SMS", smsReady ? "Ready" : "Not Ready", smsReady ? "Twilio configured" : "Add provider secrets")}
+          </div>
+          <p class="notice">Email reminders use the lead’s contact email. SMS reminders use the lead’s contact phone.</p>
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>Reminder Templates</h3>
+              <p>${isAdmin() ? "Edit the default message templates reps use for one-click reminders." : "These are the agency-approved reminder templates used when you send follow-ups."}</p>
+            </div>
+            ${isAdmin() ? `<button class="button ${state.ui.reminderEditing ? "button-secondary" : "button-ghost"}" id="toggleReminderEditingButton" type="button">${state.ui.reminderEditing ? "Done Editing" : "Edit Templates"}</button>` : ""}
+          </div>
+          <div class="section-stack">
+            <label class="mini-card">
+              Email Subject
+              <input data-communication-setting="emailSubjectTemplate" value="${escapeHtml(state.setup.communicationSettings.emailSubjectTemplate || "")}" ${isAdmin() && state.ui.reminderEditing ? "" : "disabled"} />
+            </label>
+            <label class="mini-card">
+              Reply-To Email
+              <input data-communication-setting="replyToEmail" value="${escapeHtml(state.setup.communicationSettings.replyToEmail || "")}" ${isAdmin() && state.ui.reminderEditing ? "" : "disabled"} />
+            </label>
+            <label class="mini-card">
+              Email Body
+              <textarea data-communication-setting="emailBodyTemplate" ${isAdmin() && state.ui.reminderEditing ? "" : "disabled"}>${escapeHtml(state.setup.communicationSettings.emailBodyTemplate || "")}</textarea>
+            </label>
+            <label class="mini-card">
+              SMS Body
+              <textarea data-communication-setting="smsBodyTemplate" ${isAdmin() && state.ui.reminderEditing ? "" : "disabled"}>${escapeHtml(state.setup.communicationSettings.smsBodyTemplate || "")}</textarea>
+            </label>
+          </div>
+          <p class="notice">Available placeholders: <code>{{contactName}}</code>, <code>{{businessName}}</code>, <code>{{repName}}</code>, <code>{{leadNumber}}</code>, <code>{{nextTaskSentence}}</code>, <code>{{nextFollowUpDate}}</code>.</p>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
 function renderOpportunityForm(row) {
   const autoAssignLabel = state.setup.routingRules.autoAssignEnabled ? "Auto Assign" : "Keep with owner";
   const assigneeOptions = [
@@ -2791,6 +2956,24 @@ function renderLeadWorkspace(row, timeline) {
         </div>
         ${renderOpportunityAttachments(row, attachments)}
       </article>
+      <article class="table-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>Send Reminder</h3>
+            <p>${row.id ? "Use the agency templates to send a follow-up by email or text without leaving the lead." : "Create the lead first, then send reminders from here."}</p>
+          </div>
+        </div>
+        ${renderOpportunityReminders(row)}
+      </article>
+      <article class="table-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>Calendar Sync</h3>
+            <p>${row.id ? "Create a Google Calendar event from this lead’s follow-up or appointment." : "Create the lead first, then push a follow-up to calendar."}</p>
+          </div>
+        </div>
+        ${renderOpportunityCalendarSync(row)}
+      </article>
     </div>
   `;
 }
@@ -2961,6 +3144,88 @@ function renderOpportunityAttachments(row, attachments) {
           </div>
         `
         : `<div class="empty-state"><h3>No files yet</h3><p>Upload quotes, proposals, and renewal documents so they stay attached to this lead.</p></div>`}
+    </div>
+  `;
+}
+
+function renderOpportunityCalendarSync(row) {
+  if (!row.id) {
+    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, you can turn follow-ups into real calendar events.</p></div>`;
+  }
+
+  if (!state.calendarConnection?.connected) {
+    return `
+      <div class="empty-state">
+        <h3>Connect Google Calendar first</h3>
+        <p>Open the Integrations tab to connect your calendar, then come back here to push this lead’s follow-up onto it.</p>
+      </div>
+    `;
+  }
+
+  const defaultDate = row.nextFollowUpDate || row.effectiveDate || todayIso();
+  const startAt = `${defaultDate}T09:00`;
+  const endAt = `${defaultDate}T09:30`;
+  return `
+    <form id="calendarEventForm" class="activity-log-form">
+      <input type="hidden" name="opportunityId" value="${escapeHtml(row.id)}" />
+      <label class="full-span">
+        Event Title
+        <input name="summary" value="${escapeHtml(`${row.businessName} follow-up`)}" />
+      </label>
+      <label>
+        Start
+        <input type="datetime-local" name="startAt" value="${escapeHtml(startAt)}" />
+      </label>
+      <label>
+        End
+        <input type="datetime-local" name="endAt" value="${escapeHtml(endAt)}" />
+      </label>
+      <label class="full-span">
+        Event Notes
+        <textarea name="description">${escapeHtml(`Lead ${row.leadNumber}\nSource: ${row.leadSource}\nTask: ${row.nextTask || "Follow-up"}\nNotes: ${row.notes || ""}`)}</textarea>
+      </label>
+      <div class="form-actions">
+        <button class="button button-primary" type="submit" ${state.ui.calendarSyncLoading ? "disabled" : ""}>
+          ${state.ui.calendarSyncLoading ? "Creating..." : "Create Google Calendar Event"}
+        </button>
+      </div>
+    </form>
+  `;
+}
+
+function renderOpportunityReminders(row) {
+  if (!row.id) {
+    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, you can send reminder messages from the approved templates.</p></div>`;
+  }
+
+  const emailReady = Boolean(state.communicationStatus?.email?.configured);
+  const smsReady = Boolean(state.communicationStatus?.sms?.configured);
+  const emailPreview = interpolateReminderTemplate(state.setup.communicationSettings.emailBodyTemplate || "", row);
+  const smsPreview = interpolateReminderTemplate(state.setup.communicationSettings.smsBodyTemplate || "", row);
+
+  return `
+    <div class="section-stack">
+      <div class="dashboard-grid compact-dashboard-grid">
+        ${statCard("Email", row.contactEmail || "Missing", row.contactEmail ? "Recipient found" : "Add contact email")}
+        ${statCard("SMS", row.contactPhone || "Missing", row.contactPhone ? "Recipient found" : "Add contact phone")}
+      </div>
+      <div class="two-column compact-two-column">
+        <article class="mini-card reminder-preview-card">
+          <h3>Email Preview</h3>
+          <div class="subtle">${escapeHtml(state.setup.communicationSettings.emailSubjectTemplate || "")}</div>
+          <p class="reminder-preview-copy">${escapeHtml(emailPreview)}</p>
+          <button class="button button-primary" type="button" data-send-reminder="${escapeHtml(row.id)}" data-reminder-channel="email" ${!emailReady || !row.contactEmail || state.ui.reminderSending ? "disabled" : ""}>
+            ${state.ui.reminderSending ? "Sending..." : "Send Email Reminder"}
+          </button>
+        </article>
+        <article class="mini-card reminder-preview-card">
+          <h3>SMS Preview</h3>
+          <p class="reminder-preview-copy">${escapeHtml(smsPreview)}</p>
+          <button class="button button-primary" type="button" data-send-reminder="${escapeHtml(row.id)}" data-reminder-channel="sms" ${!smsReady || !row.contactPhone || state.ui.reminderSending ? "disabled" : ""}>
+            ${state.ui.reminderSending ? "Sending..." : "Send Text Reminder"}
+          </button>
+        </article>
+      </div>
     </div>
   `;
 }
@@ -3347,6 +3612,24 @@ function formatFileSize(bytes) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function interpolateReminderTemplate(template, row) {
+  const replacements = {
+    contactName: row.contactName || "there",
+    businessName: row.businessName || "your account",
+    repName: row.assignedRepName || state.profile?.full_name || "our team",
+    leadNumber: row.leadNumber || "",
+    nextTaskSentence: row.nextTask
+      ? `${row.nextTask}${row.nextFollowUpDate ? ` by ${row.nextFollowUpDate}` : ""}.`
+      : "Just wanted to check in and keep your quote moving.",
+    nextFollowUpDate: row.nextFollowUpDate || ""
+  };
+
+  return Object.entries(replacements).reduce(
+    (output, [key, value]) => output.replaceAll(`{{${key}}}`, String(value || "")),
+    template || ""
+  );
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -3449,6 +3732,46 @@ function bindAppEvents() {
       }
     });
   }
+
+  const connectGoogleCalendarButton = document.getElementById("connectGoogleCalendarButton");
+  if (connectGoogleCalendarButton) {
+    connectGoogleCalendarButton.addEventListener("click", async () => {
+      try {
+        await connectGoogleCalendar();
+      } catch (error) {
+        state.ui.error = error.message || "Could not start Google Calendar connection.";
+        render();
+      }
+    });
+  }
+
+  const disconnectGoogleCalendarButton = document.getElementById("disconnectGoogleCalendarButton");
+  if (disconnectGoogleCalendarButton) {
+    disconnectGoogleCalendarButton.addEventListener("click", async () => {
+      try {
+        await disconnectGoogleCalendar();
+      } catch (error) {
+        state.ui.error = error.message || "Could not disconnect Google Calendar.";
+        render();
+      }
+    });
+  }
+
+  const toggleReminderEditingButton = document.getElementById("toggleReminderEditingButton");
+  if (toggleReminderEditingButton) {
+    toggleReminderEditingButton.addEventListener("click", () => {
+      state.ui.reminderEditing = !state.ui.reminderEditing;
+      render();
+    });
+  }
+
+  document.querySelectorAll("[data-communication-setting]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      const key = event.target.dataset.communicationSetting;
+      state.setup.communicationSettings[key] = event.target.value;
+      await persistSettings();
+    });
+  });
 
   const timeframeSelect = document.getElementById("timeframeSelect");
   if (timeframeSelect) {
@@ -3797,6 +4120,37 @@ function bindAppEvents() {
       }
     });
   }
+
+  const calendarEventForm = document.getElementById("calendarEventForm");
+  if (calendarEventForm) {
+    calendarEventForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = Object.fromEntries(new FormData(calendarEventForm).entries());
+      try {
+        await createGoogleCalendarEvent({
+          opportunityId: String(formData.opportunityId || ""),
+          summary: String(formData.summary || ""),
+          description: String(formData.description || ""),
+          startAt: String(formData.startAt || ""),
+          endAt: String(formData.endAt || "")
+        });
+      } catch (error) {
+        state.ui.error = error.message || "Could not create the calendar event.";
+        render();
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-send-reminder]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await sendLeadReminder(button.dataset.sendReminder, button.dataset.reminderChannel);
+      } catch (error) {
+        state.ui.error = error.message || "Could not send the reminder.";
+        render();
+      }
+    });
+  });
 
   document.querySelectorAll("[data-download-attachment]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -4259,6 +4613,135 @@ async function askClaudeAssistant(question) {
   }
 }
 
+async function callEdgeFunction(name, body = {}) {
+  if (!state.supabase) {
+    throw new Error("Backend is not ready.");
+  }
+  const {
+    data: { session }
+  } = await state.supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Sign in again before using this action.");
+  }
+
+  const response = await fetch(`${APP_CONFIG.supabaseUrl}/functions/v1/${name}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: APP_CONFIG.supabaseAnonKey,
+      Authorization: `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `${name} failed (${response.status}).`);
+  }
+  return payload;
+}
+
+async function connectGoogleCalendar() {
+  state.ui.calendarSyncLoading = true;
+  state.ui.error = "";
+  state.ui.notice = "";
+  render();
+  try {
+    const payload = await callEdgeFunction(GOOGLE_CALENDAR_CONNECT_FUNCTION, {
+      returnTo: APP_CONFIG.appUrl || window.location.origin
+    });
+    if (!payload.url) {
+      throw new Error("Google connection URL was not returned.");
+    }
+    window.location.href = payload.url;
+  } finally {
+    state.ui.calendarSyncLoading = false;
+    render();
+  }
+}
+
+async function disconnectGoogleCalendar() {
+  state.ui.calendarSyncLoading = true;
+  state.ui.error = "";
+  state.ui.notice = "";
+  render();
+  try {
+    await callEdgeFunction(GOOGLE_CALENDAR_DISCONNECT_FUNCTION);
+    state.ui.notice = "Google Calendar disconnected.";
+    await loadWorkspace({ showLoading: false });
+  } finally {
+    state.ui.calendarSyncLoading = false;
+    render();
+  }
+}
+
+async function createGoogleCalendarEvent({ opportunityId, summary, description, startAt, endAt }) {
+  state.ui.calendarSyncLoading = true;
+  state.ui.error = "";
+  state.ui.notice = "";
+  render();
+  try {
+    const payload = await callEdgeFunction(GOOGLE_CALENDAR_CREATE_EVENT_FUNCTION, {
+      opportunityId,
+      summary,
+      description,
+      startAt,
+      endAt
+    });
+    state.ui.notice = payload.htmlLink
+      ? "Calendar event created. Use the link in the timeline to open it."
+      : "Calendar event created.";
+    await loadWorkspace({ showLoading: false });
+  } finally {
+    state.ui.calendarSyncLoading = false;
+    render();
+  }
+}
+
+async function sendLeadReminder(opportunityId, channel) {
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity) {
+    throw new Error("That lead could not be found.");
+  }
+
+  const emailSubject = interpolateReminderTemplate(state.setup.communicationSettings.emailSubjectTemplate || "", opportunity);
+  const emailBody = interpolateReminderTemplate(state.setup.communicationSettings.emailBodyTemplate || "", opportunity);
+  const smsBody = interpolateReminderTemplate(state.setup.communicationSettings.smsBodyTemplate || "", opportunity);
+
+  state.ui.reminderSending = true;
+  state.ui.error = "";
+  state.ui.notice = "";
+  render();
+
+  try {
+    const payload = await callEdgeFunction(SEND_REMINDER_FUNCTION, {
+      opportunityId,
+      channel,
+      subject: emailSubject,
+      body: channel === "email" ? emailBody : smsBody,
+      replyToEmail: state.setup.communicationSettings.replyToEmail || ""
+    });
+
+    await logOpportunityActivity({
+      opportunityId,
+      activityType: channel === "email" ? "Email" : "Text",
+      outcome: "Sent Information",
+      title: channel === "email" ? "Reminder email sent" : "Reminder text sent",
+      detail: channel === "email"
+        ? `Reminder sent to ${opportunity.contactEmail}.${payload.providerId ? ` Provider ID: ${payload.providerId}` : ""}`
+        : `Reminder sent to ${opportunity.contactPhone}.${payload.providerId ? ` Provider ID: ${payload.providerId}` : ""}`
+    });
+
+    state.ui.notice = channel === "email"
+      ? `Reminder email sent to ${opportunity.contactEmail}.`
+      : `Reminder text sent to ${opportunity.contactPhone}.`;
+    await loadWorkspace({ showLoading: false });
+  } finally {
+    state.ui.reminderSending = false;
+    render();
+  }
+}
+
 async function openOpportunityAttachment(attachmentId) {
   const attachment = state.opportunityAttachments.find((item) => item.id === attachmentId);
   if (!attachment) {
@@ -4418,6 +4901,7 @@ async function persistSettings() {
         singleton_key: "default",
         assumptions: state.setup.assumptions,
         routing_rules: state.setup.routingRules,
+        communication_settings: state.setup.communicationSettings,
         lead_sources: state.setup.leadSources,
         statuses: state.setup.statuses,
         products: state.setup.products,

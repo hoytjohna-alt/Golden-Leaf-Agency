@@ -181,6 +181,91 @@ No Anthropic key should ever be added to Render frontend env vars.
 - reps can ask only about their own scoped data
 - if a lead is open in the workspace, the assistant also gets that lead as focused context
 
+## Google Calendar setup
+
+The app now includes Google Calendar connection and lead-to-calendar event creation.
+
+### What it does
+
+- each user connects their own Google Calendar
+- reps can create calendar events from lead follow-ups and appointments
+- admins can connect their own calendar separately
+- Outlook is the next provider to add
+
+### Google Cloud setup
+
+Create OAuth credentials in Google Cloud and add this redirect URI:
+
+- `https://wnmspwioshucrcqbfabo.supabase.co/functions/v1/google-calendar-callback`
+
+Recommended scope used by the app:
+
+- `https://www.googleapis.com/auth/calendar.events`
+
+### Supabase secrets for calendar
+
+Add these secrets in Supabase Edge Functions:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `APP_URL`
+
+`APP_URL` should be your live Render URL, for example:
+
+- `https://golden-leaf-agency-hq.onrender.com`
+
+### Functions to deploy
+
+- `google-calendar-connect`
+- `google-calendar-status`
+- `google-calendar-disconnect`
+- `google-calendar-create-event`
+- `google-calendar-callback`
+
+### Database update
+
+Run the latest `supabase-schema.sql` again so these tables exist:
+
+- `user_calendar_connections`
+- `calendar_oauth_states`
+
+## Email and text reminder setup
+
+The app now supports one-click lead reminders through secure backend functions.
+
+### What it does
+
+- reps and admins can send reminder emails from a lead
+- reps and admins can send reminder texts from a lead
+- admins can edit the default email and SMS reminder templates in the Integrations tab
+- sends are scoped to the lead the user is allowed to access
+
+### Email provider setup
+
+This build uses Resend for email.
+
+Add these Supabase Edge Function secrets:
+
+- `RESEND_API_KEY`
+- `REMINDER_FROM_EMAIL`
+- `REMINDER_REPLY_TO` (optional)
+
+### SMS provider setup
+
+This build uses Twilio for SMS.
+
+Add these Supabase Edge Function secrets:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER`
+
+### Functions to deploy
+
+- `communication-status`
+- `send-reminder`
+
 ## Recommended next improvements
 
 - admin invite flow inside the app
