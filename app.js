@@ -3444,7 +3444,7 @@ function bindAppEvents() {
       try {
         await askClaudeAssistant(question);
       } catch (error) {
-        state.ui.assistantError = error.message || "Claude could not answer right now.";
+        state.ui.assistantError = error?.message || "Claude could not answer right now.";
         render();
       }
     });
@@ -4245,7 +4245,7 @@ async function askClaudeAssistant(question) {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || "Claude could not answer right now.");
+      throw new Error(payload.error || `Claude request failed (${response.status}).`);
     }
 
     state.ui.assistantMessages = [
