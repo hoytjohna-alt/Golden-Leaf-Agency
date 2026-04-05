@@ -91,9 +91,9 @@ const HELP_CENTER_CONTENT = {
       summary: "The fastest way to get a new agency live without guessing what to do first.",
       steps: [
         "Admin signs in and opens Setup to confirm users, assumptions, carrier commissions, and routing rules.",
-        "Add reps and confirm each rep can log in and only see their own pipeline.",
+        "Add producers and confirm each producer can log in and only see their own pipeline.",
         "Decide whether new leads will be entered one by one or imported by CSV.",
-        "Have reps use New Lead for intake, Update Leads for notes/tasks, and Move Stages for fast pipeline movement.",
+        "Have producers use New Lead for intake, Update Leads for notes/tasks, and Move Stages for fast pipeline movement.",
         "Use the dashboard each morning to work overdue follow-ups, stale leads, and upcoming renewals.",
         "Add optional integrations later: Claude, Google Calendar, email reminders, and SMS reminders."
       ],
@@ -109,13 +109,13 @@ const HELP_CENTER_CONTENT = {
       steps: [
         "Dashboard shows daily priorities, overdue follow-ups, stale leads, and renewal pressure.",
         "Pipeline has separate work modes: New Lead, Update Leads, and Move Stages.",
-        "Scorecards and Coaching support rep accountability and owner coaching.",
+        "Scorecards and Coaching support producer accountability and owner coaching.",
         "Admins also get Reports, Setup, and deeper agency-wide controls.",
         "Integrations contains calendar and reminder provider setup when the agency is ready."
       ],
       questions: [
         "Explain what each main tab is for.",
-        "How should a new rep use this workspace day to day?"
+        "How should a new producer use this workspace day to day?"
       ]
     }
   ],
@@ -125,7 +125,7 @@ const HELP_CENTER_CONTENT = {
       audience: "Admins",
       summary: "This is the owner onboarding flow for getting the agency configured correctly.",
       steps: [
-        "Open Setup > Users and add or invite each rep who needs access.",
+        "Open Setup > Users and add or invite each producer who needs access.",
         "Use Remove for people who should leave the visible roster. Use Deactivate if you want to keep them on record but block access.",
         "Open Setup > Assumptions and click Edit Assumptions before changing targets or forecasting inputs.",
         "Open Setup > Carrier Table and click Edit Table before changing commission percentages.",
@@ -141,10 +141,10 @@ const HELP_CENTER_CONTENT = {
       audience: "Admins",
       summary: "How assignment rules work so leads go where the agency expects.",
       steps: [
-        "Rep-created leads always stay with the rep who created them.",
+        "Producer-created leads always stay with the producer who created them.",
         "Self-Generated leads stay with the creator instead of being routed away.",
         "Auto assign is mainly for owner-entered leads or CSV imports.",
-        "Round robin rotates owner-fed leads between active reps.",
+        "Round robin rotates owner-fed leads between active producers.",
         "Source based routing checks mapped lead sources first, then falls back to the general routing rule.",
         "Use the CSV import preview to confirm assignments before importing a batch."
       ],
@@ -159,9 +159,9 @@ const HELP_CENTER_CONTENT = {
       summary: "The highest-value management routine for an agency owner using this system.",
       steps: [
         "Start on Dashboard to review overdue follow-ups, stale leads, and upcoming renewals.",
-        "Use Reports to see rep conversion, source profitability, and coaching pressure.",
+        "Use Reports to see producer conversion, source profitability, and coaching pressure.",
         "Open Pipeline > Update Leads when you need to inspect a specific account in detail.",
-        "Use Setup > Routing to balance workload when one rep is overloaded.",
+        "Use Setup > Routing to balance workload when one producer is overloaded.",
         "Use Export Workbook when you need a spreadsheet-style handoff or backup for stakeholders."
       ],
       questions: [
@@ -189,7 +189,7 @@ const HELP_CENTER_CONTENT = {
   rep: [
     {
       title: "Producer Daily Workflow",
-      audience: "Reps",
+      audience: "Producers",
       summary: "The simplest way for a producer to stay organized without overthinking the system.",
       steps: [
         "Start on Dashboard and work the action queue first.",
@@ -205,7 +205,7 @@ const HELP_CENTER_CONTENT = {
     },
     {
       title: "Follow-Ups, Tasks, and Activity Logging",
-      audience: "Reps",
+      audience: "Producers",
       summary: "This is what keeps leads from going stale and what gives the owner clean coaching visibility.",
       steps: [
         "Every worked lead should have a next task and a follow-up date when appropriate.",
@@ -1926,7 +1926,7 @@ function render() {
             ${kpiCard("Bound Premium", formatCurrency(summary.boundPremium), "Actual premium")}
             ${kpiCard("Pipeline Agency Comm", formatCurrency(summary.pipelineAgencyComm), "Projected commission")}
             ${kpiCard("Actual Agency Comm", formatCurrency(summary.actualAgencyComm), "Closed won revenue")}
-            ${kpiCard("Owner Net Agency Comm", formatCurrency(summary.ownerNetAgencyComm), "After rep payout")}
+            ${kpiCard("Owner Net Agency Comm", formatCurrency(summary.ownerNetAgencyComm), "After producer payout")}
           `
           : `
             ${kpiCard("Bound Premium", formatCurrency(userSummary.boundPremium), "Your closed premium")}
@@ -2019,7 +2019,7 @@ function render() {
         <article class="table-card dashboard-card">
           <div class="panel-header">
             <div>
-              <h3>${isAdmin() ? "Touch Activity by Rep" : "My Outreach Mix"}</h3>
+              <h3>${isAdmin() ? "Touch Activity by Producer" : "My Outreach Mix"}</h3>
               <p>${isAdmin() ? "Quick coaching view of who is actively working their book." : "See how your touches are stacking up."}</p>
             </div>
           </div>
@@ -2074,14 +2074,14 @@ function render() {
       <div class="panel-header reports-topbar">
         <div>
           <h2>Owner Reports</h2>
-          <p>Rep performance and source profitability in one place without crowding the main dashboard.</p>
+          <p>Producer performance and source profitability in one place without crowding the main dashboard.</p>
         </div>
       </div>
       <div class="two-column compact-two-column reports-grid">
         <article class="table-card reports-card">
           <div class="panel-header">
             <div>
-              <h3>Rep Performance Snapshot</h3>
+              <h3>Producer Performance Snapshot</h3>
               <p>See who is converting, who is overdue, and where coaching pressure belongs.</p>
             </div>
           </div>
@@ -2128,13 +2128,13 @@ function render() {
           <div class="toolbar-grid">
             <label>
               Search
-              <input id="searchInput" value="${escapeHtml(state.ui.search)}" placeholder="Business, rep, lead number" />
+              <input id="searchInput" value="${escapeHtml(state.ui.search)}" placeholder="Business, producer, lead number" />
             </label>
             ${isAdmin() ? `
               <label>
-                Rep
+                Producer
                 <select id="repFilterSelect">
-                  <option value="All">All reps</option>
+                  <option value="All">All producers</option>
                   ${visibleManagedProfiles.map((profile) => `<option value="${profile.id}" ${state.ui.repFilter === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
                 </select>
               </label>
@@ -2179,7 +2179,7 @@ function render() {
               <label class="compact-field">
                 Reassign To
                 <select id="bulkAssignUserSelect">
-                  <option value="">Choose rep</option>
+                  <option value="">Choose producer</option>
                   ${assignableProfiles.map((profile) => `<option value="${profile.id}" ${state.ui.bulkAssignUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
                 </select>
               </label>
@@ -2226,12 +2226,12 @@ function render() {
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Agency Scorecards and ROI" : "My Production Scorecard"}</h2>
-          <p>${isAdmin() ? "Full rollup by rep and lead source." : "Your personal performance against the same tracked metrics."}</p>
+          <p>${isAdmin() ? "Full rollup by producer and lead source." : "Your personal performance against the same tracked metrics."}</p>
         </div>
       </div>
         <div class="two-column">
         <div class="table-card">
-          <div class="panel-header"><h3>${isAdmin() ? "Rep Scorecards" : "My Production Scorecard"}</h3></div>
+          <div class="panel-header"><h3>${isAdmin() ? "Producer Scorecards" : "My Production Scorecard"}</h3></div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -2308,7 +2308,7 @@ function render() {
             <thead>
               <tr>
                 <th>Week Start</th>
-                <th>Rep</th>
+                <th>Producer</th>
                 <th>Leads</th>
                 <th>Contact Rate</th>
                 <th>Quotes</th>
@@ -2370,17 +2370,17 @@ function render() {
             <div class="panel-header">
               <div>
                 <h3>Users</h3>
-                <p>Invite reps directly from the app, then manage role and status once they activate.</p>
+                <p>Invite producers directly from the app, then manage role and status once they activate.</p>
               </div>
             </div>
             <form id="inviteRepForm" class="invite-form setup-invite-form">
               <label>
-                Rep Name
+                Producer Name
                 <input name="fullName" placeholder="Producer name" required />
               </label>
               <label>
-                Rep Email
-                <input name="email" type="email" placeholder="rep@agency.com" required />
+                Producer Email
+                <input name="email" type="email" placeholder="producer@agency.com" required />
               </label>
               <button class="button button-primary" type="submit">Send Invite Email</button>
             </form>
@@ -2478,13 +2478,13 @@ function render() {
                   </select>
                 </label>
               </div>
-              <p class="notice">Rep-created leads stay with the rep who entered them. Self-generated leads are never routed away from the creator. Auto assign only applies to owner-entered or imported leads left on <code>Auto Assign</code>.</p>
+              <p class="notice">Producer-created leads stay with the producer who entered them. Self-generated leads are never routed away from the creator. Auto assign only applies to owner-entered or imported leads left on <code>Auto Assign</code>.</p>
             </article>
             <article class="table-card setup-card">
               <div class="panel-header">
                 <div>
                   <h3>Lead Source Routing</h3>
-                  <p>Optionally pin owner-fed lead sources to specific reps before round robin is used.</p>
+                  <p>Optionally pin owner-fed lead sources to specific producers before round robin is used.</p>
                 </div>
               </div>
               <div class="table-wrap">
@@ -2492,7 +2492,7 @@ function render() {
                   <thead>
                     <tr>
                       <th>Lead Source</th>
-                      <th>Assigned Rep</th>
+                      <th>Assigned Producer</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2551,7 +2551,7 @@ function render() {
                         <th>Row</th>
                         <th>Business Name</th>
                         <th>Source</th>
-                        <th>Assigned Rep</th>
+                        <th>Assigned Producer</th>
                         <th>Routing Result</th>
                         <th>Status</th>
                       </tr>
@@ -2579,7 +2579,7 @@ function render() {
             <article class="table-card setup-card">
               <div class="panel-header">
                 <div>
-                  <h3>Rep Workload</h3>
+                  <h3>Producer Workload</h3>
                   <p>See open-load distribution before you rebalance or change routing rules.</p>
                 </div>
               </div>
@@ -2741,7 +2741,7 @@ function renderAssistant() {
             <button class="button button-ghost assistant-close" id="assistantCloseButton" type="button">Close</button>
           </header>
           <div class="assistant-context">
-            <span class="tag">${isAdmin() ? "Admin scope" : "Rep scope"}</span>
+            <span class="tag">${isAdmin() ? "Admin scope" : "Producer scope"}</span>
             <span class="tag">Help center connected</span>
             ${activeOpportunity ? `<span class="tag">Focused lead: ${escapeHtml(activeOpportunity.businessName || activeOpportunity.leadNumber)}</span>` : `<span class="tag">Workspace scope</span>`}
           </div>
@@ -2817,7 +2817,7 @@ function renderLogin() {
         <form id="loginForm" class="form-card auth-form" novalidate onsubmit="return false;">
           <label>
             Email
-            <input type="email" name="email" placeholder="rep@agency.com" required />
+            <input type="email" name="email" placeholder="producer@agency.com" required />
           </label>
           <label>
             Password
@@ -2830,7 +2830,7 @@ function renderLogin() {
           <h3>How access works</h3>
           <ul>
             <li>Reps can only view and edit their own assigned leads.</li>
-            <li>Admins can view every lead, assign reps, and adjust agency-wide settings.</li>
+            <li>Admins can view every lead, assign producers, and adjust agency-wide settings.</li>
             <li>All producer activity rolls up live into the owner dashboard.</li>
           </ul>
         </article>
@@ -2900,7 +2900,7 @@ function renderIntegrations() {
                 ${state.ui.calendarSyncLoading && googleConnected ? "Disconnecting..." : "Disconnect"}
               </button>
             </div>
-            <p class="notice">This connection is user-specific. Each rep can connect their own calendar, while admins can connect theirs separately.</p>
+            <p class="notice">This connection is user-specific. Each producer can connect their own calendar, while admins can connect theirs separately.</p>
           </div>
         </article>
         <article class="table-card integrations-card">
@@ -2935,7 +2935,7 @@ function renderIntegrations() {
           <div class="panel-header">
             <div>
               <h3>Reminder Templates</h3>
-              <p>${isAdmin() ? "Edit the default message templates reps use for one-click reminders." : "These are the agency-approved reminder templates used when you send follow-ups."}</p>
+              <p>${isAdmin() ? "Edit the default message templates producers use for one-click reminders." : "These are the agency-approved reminder templates used when you send follow-ups."}</p>
             </div>
             ${isAdmin() ? `<button class="button ${state.ui.reminderEditing ? "button-secondary" : "button-ghost"}" id="toggleReminderEditingButton" type="button">${state.ui.reminderEditing ? "Done Editing" : "Edit Templates"}</button>` : ""}
           </div>
@@ -3067,7 +3067,7 @@ function renderOpportunityForm(row) {
           <input type="date" name="dateReceived" value="${escapeHtml(row.dateReceived || todayIso())}" required />
         </label>
         <label>
-          Assigned Rep
+          Assigned Producer
           <select name="assignedUserId">${assigneeOptions}</select>
         </label>
         <label>
@@ -3313,7 +3313,7 @@ function renderCreateLeadWorkspace() {
 
 function renderOpportunityActivityComposer(row) {
   if (!row.id) {
-    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, reps can log outreach and appointments here.</p></div>`;
+    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, producers can log outreach and appointments here.</p></div>`;
   }
 
   return `
@@ -3381,7 +3381,7 @@ function renderOpportunityTimeline(row, timeline) {
 
 function renderCommunicationLeaderboard(rows) {
   if (!rows.length) {
-    return `<div class="empty-state"><h3>No outreach logged yet</h3><p>Once reps start recording touches, this turns into a coaching and accountability view.</p></div>`;
+    return `<div class="empty-state"><h3>No outreach logged yet</h3><p>Once producers start recording touches, this turns into a coaching and accountability view.</p></div>`;
   }
 
   return `
@@ -3719,7 +3719,7 @@ function renderCommissionList(rows) {
 
 function renderTaskQueue(rows) {
   if (!rows.length) {
-    return `<div class="empty-state"><h3>No open tasks</h3><p>Once reps start setting next tasks and follow-up dates, the action queue will populate here.</p></div>`;
+    return `<div class="empty-state"><h3>No open tasks</h3><p>Once producers start setting next tasks and follow-up dates, the action queue will populate here.</p></div>`;
   }
   return `
     <div class="task-queue">
@@ -3810,7 +3810,7 @@ function renderRenewalQueue(rows) {
 
 function renderOwnerRepPerformance(rows) {
   if (!rows.length) {
-    return `<div class="empty-state"><h3>No rep data yet</h3><p>As producers start working leads, owner performance reporting will populate here.</p></div>`;
+    return `<div class="empty-state"><h3>No producer data yet</h3><p>As producers start working leads, owner performance reporting will populate here.</p></div>`;
   }
   return `
     <div class="owner-report-list">
@@ -4560,7 +4560,7 @@ function bindAppEvents() {
         return;
       }
       if (!nextActive && getAssignedLeadCount(profileId) > 0) {
-        state.ui.error = `Reassign ${getAssignedLeadCount(profileId)} lead(s) from ${targetProfile?.full_name || "this rep"} before deactivating them.`;
+        state.ui.error = `Reassign ${getAssignedLeadCount(profileId)} lead(s) from ${targetProfile?.full_name || "this producer"} before deactivating them.`;
         render();
         return;
       }
@@ -4605,7 +4605,7 @@ function bindAppEvents() {
           fullName: String(formData.get("fullName") || "").trim()
         });
       } catch (error) {
-        state.ui.error = error.message || "Could not send the rep invite.";
+        state.ui.error = error.message || "Could not send the producer invite.";
         render();
       }
     });
@@ -5323,14 +5323,14 @@ async function bulkAssignSelected() {
     return;
   }
   if (!state.ui.bulkAssignUserId) {
-    state.ui.error = "Choose a rep for the reassignment.";
+    state.ui.error = "Choose a producer for the reassignment.";
     render();
     return;
   }
 
   const targetProfile = state.profiles.find((item) => item.id === state.ui.bulkAssignUserId);
   if (!targetProfile) {
-    state.ui.error = "That rep could not be found.";
+    state.ui.error = "That producer could not be found.";
     render();
     return;
   }
@@ -5363,7 +5363,7 @@ async function bulkAssignSelected() {
 
 async function sendRepInvite({ email, fullName }) {
   if (!email || !fullName) {
-    state.ui.error = "Enter both the rep's name and email.";
+    state.ui.error = "Enter both the producer's name and email.";
     render();
     return;
   }
@@ -5592,7 +5592,7 @@ function exportAgencyWorkbook() {
     ["Admin Priorities"],
     ["Review overdue follow-ups"],
     ["Reassign orphaned leads"],
-    ["Review rep scorecards and coaching"],
+    ["Review producer scorecards and coaching"],
     ["Export workbook for archive or handoff"]
   ]);
 
