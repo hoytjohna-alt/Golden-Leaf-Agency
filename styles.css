@@ -1076,6 +1076,87 @@ tbody tr:hover {
 
 .table-wrap {
   overflow: auto;
+  border-radius: 14px;
+}
+
+.table-wrap table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+}
+
+.opportunity-table {
+  min-width: 880px;
+}
+
+.opportunity-table td strong {
+  font-size: 0.84rem;
+}
+
+.opportunity-table .subtle,
+.opportunity-table .tag,
+.opportunity-table .status-pill {
+  font-size: 0.72rem;
+}
+
+#opportunityForm .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#opportunityForm .workspace-form-section:last-of-type .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#opportunityForm .workspace-section-header {
+  margin-bottom: -2px;
+}
+
+#opportunityForm textarea {
+  min-height: 84px;
+}
+
+.kanban-card strong {
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.kanban-task-line {
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.kanban-task-line strong {
+  font-size: 0.76rem;
+}
+
+.kanban-card .subtle {
+  font-size: 0.74rem;
+}
+
+.kanban-card .tag {
+  padding: 3px 7px;
+}
+
+.kanban-card-top .status-pill {
+  flex-shrink: 0;
+}
+
+.activity-log-form,
+.attachment-form {
+  align-items: end;
+}
+
+.reminder-preview-card {
+  gap: 8px;
+}
+
+.reminder-preview-copy {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 .users-table-wrap {

@@ -3535,7 +3535,7 @@ function renderOpportunityReminders(row) {
 
 function renderOpportunityTable(rows, selectedRows) {
   return `
-    <table>
+    <table class="opportunity-table">
       <thead>
         <tr>
           ${isAdmin() ? "<th>Select</th>" : ""}
