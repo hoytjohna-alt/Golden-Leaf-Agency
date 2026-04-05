@@ -3606,16 +3606,19 @@ async function saveCoachingNote(repId, field, value) {
 
 async function persistSettings() {
   try {
-    const { error } = await state.supabase.from("app_settings").upsert({
-      singleton_key: "default",
-      assumptions: state.setup.assumptions,
-      routing_rules: state.setup.routingRules,
-      lead_sources: state.setup.leadSources,
-      statuses: state.setup.statuses,
-      products: state.setup.products,
-      carriers: state.setup.carriers,
-      updated_by: state.profile.id
-    });
+    const { error } = await state.supabase.from("app_settings").upsert(
+      {
+        singleton_key: "default",
+        assumptions: state.setup.assumptions,
+        routing_rules: state.setup.routingRules,
+        lead_sources: state.setup.leadSources,
+        statuses: state.setup.statuses,
+        products: state.setup.products,
+        carriers: state.setup.carriers,
+        updated_by: state.profile.id
+      },
+      { onConflict: "singleton_key" }
+    );
     if (error) throw error;
     await loadWorkspace();
   } catch (error) {
@@ -3630,11 +3633,14 @@ async function advanceRoundRobinCursor(assignedProfileId) {
   const assignedIndex = activeReps.findIndex((item) => item.id === assignedProfileId);
   if (assignedIndex < 0) return;
   state.setup.routingRules.roundRobinCursor = (assignedIndex + 1) % activeReps.length;
-  const { error } = await state.supabase.from("app_settings").upsert({
-    singleton_key: "default",
-    routing_rules: state.setup.routingRules,
-    updated_by: state.profile.id
-  });
+  const { error } = await state.supabase.from("app_settings").upsert(
+    {
+      singleton_key: "default",
+      routing_rules: state.setup.routingRules,
+      updated_by: state.profile.id
+    },
+    { onConflict: "singleton_key" }
+  );
   if (error) throw error;
 }
 
