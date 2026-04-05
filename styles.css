@@ -594,6 +594,7 @@ main {
   padding: 0 10px;
   border-radius: 999px;
   background: rgba(27, 58, 92, 0.04);
+  white-space: nowrap;
 }
 
 #opportunities > .two-column {
@@ -777,6 +778,7 @@ main {
 #help .help-question-row .button {
   text-align: left;
   justify-content: flex-start;
+  max-width: 100%;
 }
 
 .panel-header {
@@ -1731,6 +1733,7 @@ tbody tr:hover td {
 
 .help-ask-button {
   white-space: normal;
+  line-height: 1.35;
 }
 
 .workload-grid {
@@ -2102,7 +2105,7 @@ tbody tr:hover td {
   }
 
   .users-table {
-    min-width: 760px;
+    min-width: 680px;
   }
 
   .bar-row {

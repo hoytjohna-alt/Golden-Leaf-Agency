@@ -2162,9 +2162,9 @@ function render() {
               <input id="dateToInput" type="date" value="${escapeHtml(state.ui.dateTo)}" />
             </label>
           </div>
-          <div class="toolbar-group">
-            <button class="button button-ghost" id="clearFiltersButton" type="button">Clear Filters</button>
-            <div class="pipeline-visible-count subtle">${listRows.length} visible</div>
+            <div class="toolbar-group">
+              <button class="button button-ghost" id="clearFiltersButton" type="button">Clear Filters</button>
+            <div class="pipeline-visible-count subtle">${listRows.length} lead${listRows.length === 1 ? "" : "s"} visible</div>
           </div>
         </div>
         ${isAdmin() && state.ui.opportunityTab === "update" ? `
@@ -2898,7 +2898,7 @@ function renderIntegrations() {
               <h3>Outlook Calendar</h3>
               <p>Microsoft calendar sync is next on deck after Google.</p>
             </div>
-            <span class="tag">Coming Next</span>
+            <span class="tag">Planned</span>
           </div>
           <div class="empty-state">
             <h3>Google first</h3>
@@ -2915,8 +2915,8 @@ function renderIntegrations() {
             </div>
           </div>
           <div class="dashboard-grid compact-dashboard-grid">
-            ${statCard("Email", emailReady ? "Ready" : "Not Ready", emailReady ? "Resend configured" : "Add provider secrets")}
-            ${statCard("SMS", smsReady ? "Ready" : "Not Ready", smsReady ? "Twilio configured" : "Add provider secrets")}
+            ${statCard("Email", emailReady ? "Ready" : "Needs Setup", emailReady ? "Resend configured" : "Add provider secrets")}
+            ${statCard("SMS", smsReady ? "Ready" : "Needs Setup", smsReady ? "Twilio configured" : "Add provider secrets")}
           </div>
           <p class="notice">Email reminders use the lead’s contact email. SMS reminders use the lead’s contact phone.</p>
         </article>
@@ -3025,7 +3025,7 @@ function renderHelpCenter() {
           </div>
         </div>
         <div class="help-question-row">
-          <button class="button button-primary" data-help-question="${escapeHtml(isAdmin() ? "Walk me through the admin setup in the right order." : "Walk me through the best producer daily workflow in this system.")}" type="button">Open Claude With a Setup Question</button>
+          <button class="button button-primary" data-help-question="${escapeHtml(isAdmin() ? "Walk me through the admin setup in the right order." : "Walk me through the best producer daily workflow in this system.")}" type="button">Ask Claude for Setup Help</button>
           <button class="button button-ghost" data-help-question="${escapeHtml("Explain this tool the way you would to a brand new agency team.")}" type="button">Ask for a Team Walkthrough</button>
         </div>
       </article>
