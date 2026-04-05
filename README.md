@@ -124,6 +124,20 @@ The SQL schema enforces:
 - reps can only see their own profile
 - admins can manage role and active status for user profiles
 
+## Pre-client handoff
+
+Before showing the platform to a client or rolling it into a live agency, use:
+
+- [PRE_CLIENT_HANDOFF.md](/Users/johnhoyt/Desktop/Golden%20Leaf%20Agency/PRE_CLIENT_HANDOFF.md)
+
+That checklist covers:
+
+- admin and producer workflow QA
+- renewal and reporting checks
+- Claude and help-center checks
+- mobile review
+- demo readiness
+
 ## Current admin capabilities
 
 - full agency dashboard

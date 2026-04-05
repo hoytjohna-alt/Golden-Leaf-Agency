@@ -2403,8 +2403,8 @@ function render() {
                       <td class="users-table-email">${escapeHtml(profile.email || "")}</td>
                       <td class="users-table-select">
                         <select data-profile-role="${profile.id}">
-                          <option value="rep" ${profile.role === "rep" ? "selected" : ""}>rep</option>
-                          <option value="admin" ${profile.role === "admin" ? "selected" : ""}>admin</option>
+                          <option value="rep" ${profile.role === "rep" ? "selected" : ""}>Producer</option>
+                          <option value="admin" ${profile.role === "admin" ? "selected" : ""}>Admin</option>
                         </select>
                       </td>
                       <td class="users-table-select">
@@ -2415,14 +2415,14 @@ function render() {
                       </td>
                       <td class="users-table-count">${getAssignedLeadCount(profile.id)} leads</td>
                       <td class="users-table-actions">
-                        ${profile.id === state.profile.id ? '<span class="subtle">Current admin</span>' : '<button class="button button-ghost" type="button" data-remove-user="' + profile.id + '">Remove</button>'}
+                        ${profile.id === state.profile.id ? '<span class="subtle">Your account</span>' : '<button class="button button-ghost" type="button" data-remove-user="' + profile.id + '">Remove</button>'}
                       </td>
                     </tr>
                   `).join("")}
                 </tbody>
               </table>
             </div>
-            <p class="notice">Invite emails create rep accounts using Supabase email sign-in. Deactivate only after their assigned leads have been reassigned.</p>
+            <p class="notice">Invite emails create producer accounts through the agency login system. Deactivate only after assigned leads have been reassigned.</p>
             ${removedProfiles.length ? `
               <div class="archived-users">
                 <h4>Removed Users</h4>
@@ -2466,7 +2466,7 @@ function render() {
                 <label class="mini-card">
                   Auto Assign New Leads
                   <select id="routingAutoAssignSelect">
-                    <option value="false" ${!state.setup.routingRules.autoAssignEnabled ? "selected" : ""}>Manual selection</option>
+                    <option value="false" ${!state.setup.routingRules.autoAssignEnabled ? "selected" : ""}>Owner assigns manually</option>
                     <option value="true" ${state.setup.routingRules.autoAssignEnabled ? "selected" : ""}>Enabled</option>
                   </select>
                 </label>
@@ -2507,7 +2507,7 @@ function render() {
                               <div class="routing-static-note">Creator keeps ownership</div>
                             ` : `
                               <select data-routing-source="${escapeHtml(source)}">
-                                <option value="">Use routing mode default</option>
+                                <option value="">Follow default routing</option>
                                 ${assignableProfiles.map((profile) => `<option value="${profile.id}" ${rule?.userId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
                               </select>
                             `}
@@ -2780,7 +2780,7 @@ function renderSetupRequired() {
       <div class="panel-header">
         <div>
           <h2>Hosted Backend Needed</h2>
-          <p>This version is wired for shared rep logins and a master agency view, but it needs Supabase keys before it can run.</p>
+          <p>This shared version supports rep logins and a full agency command center, but it still needs the hosting and database connection completed before it can run.</p>
         </div>
       </div>
       <div class="three-column">
@@ -2884,7 +2884,7 @@ function renderIntegrations() {
               <h3>Google Calendar</h3>
               <p>Push follow-ups and appointments to your Google calendar directly from a lead.</p>
             </div>
-            <span class="tag">${googleConnected ? "Connected" : "Not Connected"}</span>
+            <span class="tag">${googleConnected ? "Connected" : "Connect When Ready"}</span>
           </div>
           <div class="action-stack">
             <div class="mini-note">
@@ -2909,7 +2909,7 @@ function renderIntegrations() {
               <h3>Outlook Calendar</h3>
               <p>Microsoft calendar sync is next on deck after Google.</p>
             </div>
-            <span class="tag">Planned</span>
+            <span class="tag">Coming Soon</span>
           </div>
           <div class="empty-state">
             <h3>Google first</h3>
@@ -2926,8 +2926,8 @@ function renderIntegrations() {
             </div>
           </div>
           <div class="dashboard-grid compact-dashboard-grid">
-            ${statCard("Email", emailReady ? "Ready" : "Needs Setup", emailReady ? "Resend configured" : "Add provider secrets")}
-            ${statCard("SMS", smsReady ? "Ready" : "Needs Setup", smsReady ? "Twilio configured" : "Add provider secrets")}
+            ${statCard("Email", emailReady ? "Ready" : "Needs Setup", emailReady ? "Resend configured" : "Complete provider setup")}
+            ${statCard("SMS", smsReady ? "Ready" : "Needs Setup", smsReady ? "Twilio configured" : "Complete provider setup")}
           </div>
           <p class="notice">Email reminders use the lead’s contact email. SMS reminders use the lead’s contact phone.</p>
         </article>
@@ -3249,7 +3249,7 @@ function renderLeadWorkspace(row, timeline) {
         <div class="panel-header">
           <div>
             <h3>Log Lead Activity</h3>
-            <p>${row.id ? "Capture calls, emails, texts, appointments, and outcomes without leaving the lead." : "Create the lead first, then log rep outreach."}</p>
+            <p>${row.id ? "Capture calls, emails, texts, appointments, and outcomes without leaving the lead." : "Save the lead first, then log activity here."}</p>
           </div>
         </div>
         ${renderOpportunityActivityComposer(row)}
@@ -3267,7 +3267,7 @@ function renderLeadWorkspace(row, timeline) {
         <div class="panel-header">
           <div>
             <h3>Attachments</h3>
-            <p>${row.id ? "Quotes, proposals, dec pages, and renewal docs live with the lead." : "Create the lead first, then attach files here."}</p>
+            <p>${row.id ? "Quotes, proposals, dec pages, and renewal docs live with the lead." : "Save the lead first, then attach files here."}</p>
           </div>
         </div>
         ${renderOpportunityAttachments(row, attachments)}
@@ -3276,7 +3276,7 @@ function renderLeadWorkspace(row, timeline) {
         <div class="panel-header">
           <div>
             <h3>Send Reminder</h3>
-            <p>${row.id ? "Use the agency templates to send a follow-up by email or text without leaving the lead." : "Create the lead first, then send reminders from here."}</p>
+            <p>${row.id ? "Use the agency templates to send a follow-up by email or text without leaving the lead." : "Save the lead first, then send reminders from here."}</p>
           </div>
         </div>
         ${renderOpportunityReminders(row)}
@@ -3285,7 +3285,7 @@ function renderLeadWorkspace(row, timeline) {
         <div class="panel-header">
           <div>
             <h3>Calendar Sync</h3>
-            <p>${row.id ? "Create a Google Calendar event from this lead’s follow-up or appointment." : "Create the lead first, then push a follow-up to calendar."}</p>
+            <p>${row.id ? "Create a Google Calendar event from this lead’s follow-up or appointment." : "Save the lead first, then push a follow-up to calendar."}</p>
           </div>
         </div>
         ${renderOpportunityCalendarSync(row)}
@@ -3313,7 +3313,7 @@ function renderCreateLeadWorkspace() {
 
 function renderOpportunityActivityComposer(row) {
   if (!row.id) {
-    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, reps can log outreach and appointments here.</p></div>`;
+    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, reps can log outreach and appointments here.</p></div>`;
   }
 
   return `
@@ -3352,10 +3352,10 @@ function renderOpportunityActivityComposer(row) {
 
 function renderOpportunityTimeline(row, timeline) {
   if (!row.id) {
-    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, status changes, notes, and assignments will appear here.</p></div>`;
+    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, status changes, notes, and assignments will appear here.</p></div>`;
   }
   if (!timeline.length) {
-    return `<div class="empty-state"><h3>No activity yet</h3><p>After you run the new database script, this lead will start recording a visible history automatically.</p></div>`;
+    return `<div class="empty-state"><h3>No activity yet</h3><p>As soon as the lead is worked, the activity history will begin building here automatically.</p></div>`;
   }
   return `
     <div class="timeline-list">
@@ -3405,7 +3405,7 @@ function renderCommunicationLeaderboard(rows) {
 
 function renderOpportunityAttachments(row, attachments) {
   if (!row.id) {
-    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, you can upload files tied directly to this account.</p></div>`;
+    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, you can upload files tied directly to this account.</p></div>`;
   }
 
   return `
@@ -3466,7 +3466,7 @@ function renderOpportunityAttachments(row, attachments) {
 
 function renderOpportunityCalendarSync(row) {
   if (!row.id) {
-    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, you can turn follow-ups into real calendar events.</p></div>`;
+    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, you can turn follow-ups into real calendar events.</p></div>`;
   }
 
   if (!state.calendarConnection?.connected) {
@@ -3511,7 +3511,7 @@ function renderOpportunityCalendarSync(row) {
 
 function renderOpportunityReminders(row) {
   if (!row.id) {
-    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, you can send reminder messages from the approved templates.</p></div>`;
+    return `<div class="empty-state"><h3>Save the lead first</h3><p>Once the record exists, you can send reminder messages from the approved templates.</p></div>`;
   }
 
   const emailReady = Boolean(state.communicationStatus?.email?.configured);
