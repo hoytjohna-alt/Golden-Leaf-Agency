@@ -793,6 +793,28 @@ function getDashboardAlerts(rows) {
   };
 }
 
+function getRepPerformanceRows(rows) {
+  return getRepScorecards(rows)
+    .filter((row) => row.leads > 0)
+    .sort((a, b) => b.actualAgencyComm - a.actualAgencyComm)
+    .map((row) => ({
+      ...row,
+      overdueCount: rows.filter((item) => item.assignedUserId === row.id && item.taskOverdue).length,
+      staleCount: rows.filter((item) => item.assignedUserId === row.id && !item.closed && item.daysOpen >= 7).length
+    }));
+}
+
+function getSourcePerformanceRows(rows) {
+  return getRoiRows(rows)
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.actualAgencyComm - a.actualAgencyComm)
+    .map((row) => ({
+      ...row,
+      netRevenue: row.actualAgencyComm - row.spend,
+      revenuePerLead: row.count ? row.actualAgencyComm / row.count : 0
+    }));
+}
+
 function getMonthlyTrendRows(rows, key, monthsBack = 6) {
   const months = [];
   const now = parseDate(todayIso()) || new Date();
@@ -938,6 +960,8 @@ function render() {
   const repCommissionRows = getRepCommissionRows(getUserScopedRows(timeframeRows));
   const taskQueueRows = getTaskQueue(getUserScopedRows(allRows));
   const dashboardAlerts = getDashboardAlerts(getUserScopedRows(allRows));
+  const ownerRepPerformanceRows = isAdmin() ? getRepPerformanceRows(timeframeRows) : [];
+  const ownerSourcePerformanceRows = isAdmin() ? getSourcePerformanceRows(timeframeRows) : [];
   const activeOpportunity =
     state.opportunities.find((item) => item.id === state.ui.activeOpportunityId) ||
     blankOpportunity();
@@ -1052,6 +1076,28 @@ function render() {
             : renderCommissionList(repCommissionRows)}
         </article>
       </div>
+      ${isAdmin() ? `
+        <div class="two-column">
+          <article class="table-card">
+            <div class="panel-header">
+              <div>
+                <h3>Rep Performance Snapshot</h3>
+                <p>See who is converting, who is overdue, and where coaching pressure belongs.</p>
+              </div>
+            </div>
+            ${renderOwnerRepPerformance(ownerRepPerformanceRows)}
+          </article>
+          <article class="table-card">
+            <div class="panel-header">
+              <div>
+                <h3>Lead Source Profitability</h3>
+                <p>Revenue, spend, and return by source so owners can decide where to double down.</p>
+              </div>
+            </div>
+            ${renderOwnerSourcePerformance(ownerSourcePerformanceRows)}
+          </article>
+        </div>
+      ` : ""}
     </section>
     ` : ""}
 
@@ -1995,6 +2041,62 @@ function renderAlertsPanel(alerts) {
         <article class="alert-card" data-tone="${item.tone}">
           <strong>${escapeHtml(item.title)}</strong>
           <p>${escapeHtml(item.detail)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderOwnerRepPerformance(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state"><h3>No rep data yet</h3><p>As producers start working leads, owner performance reporting will populate here.</p></div>`;
+  }
+  return `
+    <div class="owner-report-list">
+      ${rows.map((row) => `
+        <article class="owner-report-card">
+          <div class="owner-report-header">
+            <strong>${escapeHtml(row.name)}</strong>
+            <span>${formatCurrency(row.actualAgencyComm)}</span>
+          </div>
+          <div class="owner-report-metrics">
+            <span>${row.leads} leads</span>
+            <span>${formatPct(row.contactRate)} contact</span>
+            <span>${formatPct(row.quoteRate)} quote</span>
+            <span>${formatPct(row.quoteToBindRate)} quote-to-bind</span>
+          </div>
+          <div class="owner-report-flags">
+            <span class="tag">${row.overdueCount} overdue</span>
+            <span class="tag">${row.staleCount} stale</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderOwnerSourcePerformance(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state"><h3>No source data yet</h3><p>Source performance will appear after leads start flowing through the system.</p></div>`;
+  }
+  return `
+    <div class="owner-report-list">
+      ${rows.map((row) => `
+        <article class="owner-report-card">
+          <div class="owner-report-header">
+            <strong>${escapeHtml(row.source)}</strong>
+            <span>${formatCurrency(row.netRevenue)}</span>
+          </div>
+          <div class="owner-report-metrics">
+            <span>${row.count} leads</span>
+            <span>${formatCurrency(row.spend)} spend</span>
+            <span>${formatCurrency(row.actualAgencyComm)} revenue</span>
+            <span>${formatCurrency(row.revenuePerLead)} per lead</span>
+          </div>
+          <div class="owner-report-flags">
+            <span class="tag">${formatPct(row.quoteRate)} quote rate</span>
+            <span class="tag">${formatPct(row.bindRate)} bind rate</span>
+          </div>
         </article>
       `).join("")}
     </div>

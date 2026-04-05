@@ -746,8 +746,14 @@ main {
   gap: 12px;
 }
 
+.owner-report-list {
+  display: grid;
+  gap: 12px;
+}
+
 .task-card,
-.alert-card {
+.alert-card,
+.owner-report-card {
   display: grid;
   gap: 8px;
   padding: 16px;
@@ -789,6 +795,23 @@ main {
 .alert-card[data-tone="warn"] {
   background: linear-gradient(180deg, #fff, #fbf4e7);
   border-color: rgba(212, 168, 85, 0.2);
+}
+
+.owner-report-header,
+.owner-report-metrics,
+.owner-report-flags {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.owner-report-metrics,
+.owner-report-flags {
+  justify-content: flex-start;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .timeline-list {
