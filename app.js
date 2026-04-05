@@ -83,6 +83,193 @@ const seedSettings = {
   ]
 };
 
+const HELP_CENTER_CONTENT = {
+  overview: [
+    {
+      title: "Launch Checklist",
+      audience: "All users",
+      summary: "The fastest way to get a new agency live without guessing what to do first.",
+      steps: [
+        "Admin signs in and opens Setup to confirm users, assumptions, carrier commissions, and routing rules.",
+        "Add reps and confirm each rep can log in and only see their own pipeline.",
+        "Decide whether new leads will be entered one by one or imported by CSV.",
+        "Have reps use New Lead for intake, Update Leads for notes/tasks, and Move Stages for fast pipeline movement.",
+        "Use the dashboard each morning to work overdue follow-ups, stale leads, and upcoming renewals.",
+        "Add optional integrations later: Claude, Google Calendar, email reminders, and SMS reminders."
+      ],
+      questions: [
+        "Walk me through launching this app with a new agency team.",
+        "What should the owner set up first in Golden Leaf Agency HQ?"
+      ]
+    },
+    {
+      title: "How the Workspace Is Organized",
+      audience: "All users",
+      summary: "The app is intentionally split into clear tabs so users are not stuck in one crowded screen.",
+      steps: [
+        "Dashboard shows daily priorities, overdue follow-ups, stale leads, and renewal pressure.",
+        "Pipeline has separate work modes: New Lead, Update Leads, and Move Stages.",
+        "Scorecards and Coaching support rep accountability and owner coaching.",
+        "Admins also get Reports, Setup, and deeper agency-wide controls.",
+        "Integrations contains calendar and reminder provider setup when the agency is ready."
+      ],
+      questions: [
+        "Explain what each main tab is for.",
+        "How should a new rep use this workspace day to day?"
+      ]
+    }
+  ],
+  admin: [
+    {
+      title: "Admin Setup: Users, Assumptions, and Carrier Table",
+      audience: "Admins",
+      summary: "This is the owner onboarding flow for getting the agency configured correctly.",
+      steps: [
+        "Open Setup > Users and add or invite each rep who needs access.",
+        "Use Remove for people who should leave the visible roster. Use Deactivate if you want to keep them on record but block access.",
+        "Open Setup > Assumptions and click Edit Assumptions before changing targets or forecasting inputs.",
+        "Open Setup > Carrier Table and click Edit Table before changing commission percentages.",
+        "Only change assumptions and commission settings when the owner is intentionally updating the operating model."
+      ],
+      questions: [
+        "How do I set up a new agency admin workspace?",
+        "What is the right order for configuring users, assumptions, and carrier commissions?"
+      ]
+    },
+    {
+      title: "Routing and Lead Ownership",
+      audience: "Admins",
+      summary: "How assignment rules work so leads go where the agency expects.",
+      steps: [
+        "Rep-created leads always stay with the rep who created them.",
+        "Self-Generated leads stay with the creator instead of being routed away.",
+        "Auto assign is mainly for owner-entered leads or CSV imports.",
+        "Round robin rotates owner-fed leads between active reps.",
+        "Source based routing checks mapped lead sources first, then falls back to the general routing rule.",
+        "Use the CSV import preview to confirm assignments before importing a batch."
+      ],
+      questions: [
+        "Explain how lead routing and ownership works.",
+        "When should the owner use CSV import versus manual lead entry?"
+      ]
+    },
+    {
+      title: "Owner Daily Operating Rhythm",
+      audience: "Admins",
+      summary: "The highest-value management routine for an agency owner using this system.",
+      steps: [
+        "Start on Dashboard to review overdue follow-ups, stale leads, and upcoming renewals.",
+        "Use Reports to see rep conversion, source profitability, and coaching pressure.",
+        "Open Pipeline > Update Leads when you need to inspect a specific account in detail.",
+        "Use Setup > Routing to balance workload when one rep is overloaded.",
+        "Use Export Workbook when you need a spreadsheet-style handoff or backup for stakeholders."
+      ],
+      questions: [
+        "What should an agency owner review every morning in this app?",
+        "How should I manage the team from the admin dashboard?"
+      ]
+    },
+    {
+      title: "Optional Integrations Setup",
+      audience: "Admins",
+      summary: "These features are optional and can be configured later without changing the core workflow.",
+      steps: [
+        "Claude assistant: add Anthropic secrets in Supabase and deploy the claude-assistant function.",
+        "Google Calendar: create Google OAuth credentials, add function secrets, then connect each user's calendar from Integrations.",
+        "Email reminders: add Resend secrets so one-click email follow-ups can send from the app.",
+        "Text reminders: add Twilio secrets so one-click SMS follow-ups can send from the app.",
+        "If an integration is not configured yet, the core lead workflow still works without it."
+      ],
+      questions: [
+        "How do I set up optional integrations later?",
+        "What do I need before turning on Google Calendar, email, or text reminders?"
+      ]
+    }
+  ],
+  rep: [
+    {
+      title: "Producer Daily Workflow",
+      audience: "Reps",
+      summary: "The simplest way for a producer to stay organized without overthinking the system.",
+      steps: [
+        "Start on Dashboard and work the action queue first.",
+        "Use New Lead to enter business details and ownership information.",
+        "Use Update Leads to log touches, set the next task, adjust follow-up date, upload attachments, and review activity history.",
+        "Use Move Stages only for moving cards forward in the pipeline.",
+        "If you click a card in Move Stages, the app opens that account in Update Leads for deeper work."
+      ],
+      questions: [
+        "How should a producer use this app every day?",
+        "What is the difference between New Lead, Update Leads, and Move Stages?"
+      ]
+    },
+    {
+      title: "Follow-Ups, Tasks, and Activity Logging",
+      audience: "Reps",
+      summary: "This is what keeps leads from going stale and what gives the owner clean coaching visibility.",
+      steps: [
+        "Every worked lead should have a next task and a follow-up date when appropriate.",
+        "Use Log Lead Activity to record calls, emails, texts, voicemails, appointments, quote delivery, or notes.",
+        "When you schedule a next follow-up, it feeds the dashboard action queue and stale-lead logic.",
+        "Attachments should be stored on the lead so the next touch is easy to make.",
+        "The timeline becomes the source of truth for what happened on the account."
+      ],
+      questions: [
+        "How do I log a call, email, or appointment correctly?",
+        "Why are next task and follow-up date so important?"
+      ]
+    },
+    {
+      title: "Renewals and Client File Management",
+      audience: "Reps",
+      summary: "How to keep bound business organized and renewal-ready.",
+      steps: [
+        "When a policy is bound, make sure the effective date is accurate.",
+        "If expiration is blank, the app can infer it from the policy term once the policy is bound.",
+        "Use Renewal Status to show whether the account is upcoming, marketed, retained, or lost at renewal.",
+        "Upload quotes, proposals, dec pages, and renewal documents directly to the lead.",
+        "Use the dashboard renewal queue to prioritize accounts before they slip."
+      ],
+      questions: [
+        "How does renewal tracking work after a policy is bound?",
+        "What documents should I keep attached to a lead?"
+      ]
+    }
+  ],
+  integrations: [
+    {
+      title: "Claude Assistant Guide",
+      audience: "All users",
+      summary: "Claude can answer workflow, reporting, and setup questions using the agency data and help center.",
+      steps: [
+        "Reps can ask about their own leads, tasks, renewals, attachments, and daily priorities.",
+        "Admins can ask agency-wide questions about producers, metrics, routing, renewals, and setup steps.",
+        "If a lead is open, Claude can use that lead as focused context.",
+        "Use Claude for help center questions too, such as setup order, routing behavior, or daily workflow guidance."
+      ],
+      questions: [
+        "What can I ask Claude inside this app?",
+        "Use the help center to explain how this system should be set up."
+      ]
+    },
+    {
+      title: "Calendar and Reminder Readiness",
+      audience: "All users",
+      summary: "What to expect before the agency turns on calendars, email, or texting.",
+      steps: [
+        "Google Calendar requires Google OAuth credentials and Supabase function secrets before users can connect calendars.",
+        "Email reminders require a provider such as Resend plus sender settings.",
+        "Text reminders require Twilio account credentials and a sending number.",
+        "Until providers are configured, the app still tracks tasks, appointments, and reminder content internally."
+      ],
+      questions: [
+        "Why are reminders or calendar buttons not active yet?",
+        "What needs to be configured before email, text, or calendar sync works?"
+      ]
+    }
+  ]
+};
+
 const state = {
   supabase: null,
   session: null,
@@ -118,6 +305,7 @@ const state = {
     opportunityView: "board",
     opportunityTab: "stage",
     setupTab: "users",
+    helpTab: "overview",
     carrierEditing: false,
     assumptionEditing: false,
     importPreviewRows: [],
@@ -1254,6 +1442,7 @@ function getAvailableTabs() {
     { id: "dashboard", label: "Dashboard" },
     { id: "opportunities", label: isAdmin() ? "Pipeline" : "My Pipeline" },
     { id: "integrations", label: "Integrations" },
+    { id: "help", label: "Help Center" },
     ...(isAdmin() ? [{ id: "reports", label: "Reports" }] : []),
     { id: "scorecards", label: "Scorecards" },
     { id: "coaching", label: "Coaching" },
@@ -1276,6 +1465,37 @@ function getOpportunityTabs() {
     { id: "update", label: "Update Leads" },
     { id: "create", label: "New Lead" }
   ];
+}
+
+function getHelpTabs() {
+  return [
+    { id: "overview", label: "Start Here" },
+    ...(isAdmin() ? [{ id: "admin", label: "Admin Setup" }] : []),
+    { id: "rep", label: isAdmin() ? "Producer Playbook" : "My Workflow" },
+    { id: "integrations", label: "Integrations" }
+  ];
+}
+
+function getRoleAwareHelpSections() {
+  return {
+    overview: HELP_CENTER_CONTENT.overview,
+    ...(isAdmin() ? { admin: HELP_CENTER_CONTENT.admin } : {}),
+    rep: HELP_CENTER_CONTENT.rep,
+    integrations: HELP_CENTER_CONTENT.integrations
+  };
+}
+
+function getAssistantHelpContext() {
+  return Object.entries(getRoleAwareHelpSections()).reduce((accumulator, [sectionId, articles]) => {
+    accumulator[sectionId] = articles.map((article) => ({
+      title: article.title,
+      audience: article.audience,
+      summary: article.summary,
+      steps: article.steps,
+      suggestedQuestions: article.questions
+    }));
+    return accumulator;
+  }, {});
 }
 
 function getDefaultActiveTab() {
@@ -1846,6 +2066,8 @@ function render() {
     ` : ""}
 
     ${state.ui.activeTab === "integrations" ? renderIntegrations() : ""}
+
+    ${state.ui.activeTab === "help" ? renderHelpCenter() : ""}
 
     ${isAdmin() && state.ui.activeTab === "reports" ? `
     <section class="panel workspace-panel" id="reports">
@@ -2501,12 +2723,13 @@ function renderAssistant() {
           <header class="assistant-header">
             <div>
               <strong>Claude Assistant</strong>
-              <div class="subtle">${isAdmin() ? "Admin can ask across the agency." : "You can ask about your own leads and metrics."}</div>
+              <div class="subtle">${isAdmin() ? "Admin can ask across the agency, the help center, and setup workflows." : "You can ask about your own leads, tasks, renewals, and how to use the system."}</div>
             </div>
             <button class="button button-ghost assistant-close" id="assistantCloseButton" type="button">Close</button>
           </header>
           <div class="assistant-context">
             <span class="tag">${isAdmin() ? "Admin scope" : "Rep scope"}</span>
+            <span class="tag">Help center connected</span>
             ${activeOpportunity ? `<span class="tag">Focused lead: ${escapeHtml(activeOpportunity.businessName || activeOpportunity.leadNumber)}</span>` : `<span class="tag">Workspace scope</span>`}
           </div>
           <div class="assistant-messages">
@@ -2517,14 +2740,14 @@ function renderAssistant() {
               </article>
             `).join("") : `
               <div class="empty-state assistant-empty">
-                <h3>Ask Claude about the book</h3>
-                <p>${isAdmin() ? "Try: Which reps have the most stale leads, what renewals are due next, or which source is performing best?" : "Try: What should I work first, which leads are overdue, or what renewals are coming due in my book?"}</p>
+                <h3>Ask Claude about the book or the system</h3>
+                <p>${isAdmin() ? "Try: Which reps have the most stale leads, what renewals are due next, how should I set up routing, or what should an owner review first each morning?" : "Try: What should I work first, how do I use Update Leads correctly, which renewals are coming due, or how should I log activity?"}</p>
               </div>
             `}
           </div>
           ${state.ui.assistantError ? `<p class="error-banner">${escapeHtml(state.ui.assistantError)}</p>` : ""}
           <form id="assistantForm" class="assistant-form">
-            <textarea id="assistantInput" placeholder="Ask about leads, metrics, renewals, attachments, or appointments...">${escapeHtml(state.ui.assistantInput)}</textarea>
+            <textarea id="assistantInput" placeholder="Ask about leads, setup, workflow, metrics, renewals, attachments, or appointments...">${escapeHtml(state.ui.assistantInput)}</textarea>
             <div class="assistant-actions">
               <button class="button button-primary" type="submit" ${state.ui.assistantLoading ? "disabled" : ""}>${state.ui.assistantLoading ? "Thinking..." : "Ask Claude"}</button>
             </div>
@@ -2724,6 +2947,86 @@ function renderIntegrations() {
           <p class="notice">Available placeholders: <code>{{contactName}}</code>, <code>{{businessName}}</code>, <code>{{repName}}</code>, <code>{{leadNumber}}</code>, <code>{{nextTaskSentence}}</code>, <code>{{nextFollowUpDate}}</code>.</p>
         </article>
       </div>
+    </section>
+  `;
+}
+
+function renderHelpArticle(article) {
+  return `
+    <article class="table-card help-article-card">
+      <div class="panel-header">
+        <div>
+          <h3>${escapeHtml(article.title)}</h3>
+          <p>${escapeHtml(article.summary)}</p>
+        </div>
+        <span class="tag">${escapeHtml(article.audience)}</span>
+      </div>
+      <ol class="help-steps">
+        ${article.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+      </ol>
+      ${article.questions?.length ? `
+        <div class="help-question-row">
+          ${article.questions.map((question) => `
+            <button
+              class="button button-ghost help-ask-button"
+              data-help-question="${escapeHtml(question)}"
+              type="button"
+            >
+              ${escapeHtml(question)}
+            </button>
+          `).join("")}
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function renderHelpCenter() {
+  const sectionMap = getRoleAwareHelpSections();
+  const helpTabs = getHelpTabs();
+  const activeHelpTab = helpTabs.find((tab) => tab.id === state.ui.helpTab)?.id || helpTabs[0]?.id || "overview";
+  const activeArticles = sectionMap[activeHelpTab] || HELP_CENTER_CONTENT.overview;
+
+  return `
+    <section class="panel workspace-panel" id="help">
+      <div class="panel-header">
+        <div>
+          <h2>${isAdmin() ? "Admin Help Center" : "Producer Help Center"}</h2>
+          <p>${isAdmin()
+            ? "Step-by-step launch, setup, and operating guidance for agency owners and admins."
+            : "Fast workflow guidance for producers who need to move leads, stay organized, and protect renewals."}</p>
+        </div>
+      </div>
+      <div class="section-tabs" role="tablist" aria-label="Help center sections">
+        ${helpTabs
+          .map(
+            (tab) => `
+              <button
+                class="section-tab ${activeHelpTab === tab.id ? "is-active" : ""}"
+                data-help-tab="${tab.id}"
+                type="button"
+              >
+                ${escapeHtml(tab.label)}
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="dashboard-grid help-grid">
+        ${activeArticles.map((article) => renderHelpArticle(article)).join("")}
+      </div>
+      <article class="table-card help-center-callout">
+        <div class="panel-header">
+          <div>
+            <h3>Ask Claude for Step-by-Step Help</h3>
+            <p>Claude can use this help center plus your live agency data. It can act like both an agency IT guide and an experienced owner-operator.</p>
+          </div>
+        </div>
+        <div class="help-question-row">
+          <button class="button button-primary" data-help-question="${escapeHtml(isAdmin() ? "Walk me through the admin setup in the right order." : "Walk me through the best producer daily workflow in this system.")}" type="button">Open Claude With a Setup Question</button>
+          <button class="button button-ghost" data-help-question="${escapeHtml("Explain this tool the way you would to a brand new agency team.")}" type="button">Ask for a Team Walkthrough</button>
+        </div>
+      </article>
     </section>
   `;
 }
@@ -3795,6 +4098,22 @@ function bindAppEvents() {
     });
   });
 
+  document.querySelectorAll("[data-help-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ui.helpTab = button.dataset.helpTab;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-help-question]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ui.assistantOpen = true;
+      state.ui.assistantError = "";
+      state.ui.assistantInput = button.dataset.helpQuestion || "";
+      render();
+    });
+  });
+
   document.querySelectorAll("[data-opportunity-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.ui.opportunityTab = button.dataset.opportunityTab;
@@ -4593,7 +4912,8 @@ async function askClaudeAssistant(question) {
       body: JSON.stringify({
         question,
         activeOpportunityId: activeOpportunity?.id || null,
-        history: state.ui.assistantMessages.slice(-8)
+        history: state.ui.assistantMessages.slice(-8),
+        helpCenter: getAssistantHelpContext()
       })
     });
 

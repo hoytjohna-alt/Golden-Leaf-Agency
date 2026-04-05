@@ -1161,6 +1161,35 @@ tbody tr:hover {
   gap: 18px;
 }
 
+.help-grid {
+  align-items: start;
+}
+
+.help-article-card,
+.help-center-callout {
+  height: 100%;
+}
+
+.help-steps {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.help-question-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.help-ask-button {
+  white-space: normal;
+}
+
 .workload-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

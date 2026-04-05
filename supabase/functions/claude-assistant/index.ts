@@ -15,6 +15,7 @@ type AssistantRequest = {
   question?: string;
   activeOpportunityId?: string | null;
   history?: Array<{ role: string; content: string }>;
+  helpCenter?: unknown;
 };
 
 Deno.serve(async (req) => {
@@ -117,6 +118,7 @@ Deno.serve(async (req) => {
       scope: profile.role === "admin" ? "agency-wide" : "rep-scoped to assigned leads only",
       metrics,
       settings: settings || {},
+      helpCenter: body.helpCenter || null,
       opportunities: opportunities || [],
       recentActivities: activities || [],
       activeOpportunity,
@@ -145,7 +147,7 @@ Deno.serve(async (req) => {
         max_tokens: 900,
         temperature: 0.2,
         system:
-          "You are Claude inside Golden Leaf Agency HQ. Answer only from the supplied agency data. Never reveal data outside the caller's scope. If the answer is not in the provided data, say that clearly and suggest the nearest available metric or record. Keep answers concise and operational for insurance producers and agency owners.",
+          "You are Claude inside Golden Leaf Agency HQ. You combine two roles: a calm agency IT/setup expert and an experienced independent agency owner who coaches teams on pipeline management, renewals, reporting, and producer habits. Answer only from the supplied agency data and help-center content. Never reveal data outside the caller's scope. Reps can only receive rep-scoped answers. For setup or workflow questions, use the supplied help-center content first and give practical step-by-step guidance. If the answer is not in the provided data or help center, say that clearly and suggest the nearest available metric, record, or next setup step. Keep answers concise, operational, and supportive.",
         messages: [
           ...history,
           {
