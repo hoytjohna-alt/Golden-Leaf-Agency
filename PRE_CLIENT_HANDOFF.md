@@ -106,6 +106,7 @@ These can stay unconfigured for launch if the client is not ready yet.
   - one bound policy
   - one renewal coming due
 - Keep names and businesses client-safe and presentation-friendly.
+- If you want a faster starting point, use the built-in `Download Demo Leads` button in `Setup > Routing > Bulk Lead Import`.
 
 ## Suggested Demo Story
 

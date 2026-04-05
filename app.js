@@ -170,6 +170,23 @@ const HELP_CENTER_CONTENT = {
       ]
     },
     {
+      title: "Client Demo Story",
+      audience: "Admins",
+      summary: "The cleanest way to walk a prospective agency owner through the platform without jumping around.",
+      steps: [
+        "Start on Dashboard and explain what the owner can see in the first 30 seconds.",
+        "Open Reports and show producer performance plus source profitability.",
+        "Create or import a lead so the client sees how new opportunities enter the system.",
+        "Open Update Leads to show tasks, activity, attachments, reminders, and renewals in one place.",
+        "Open Move Stages and show how the workflow advances visually without losing reporting sync.",
+        "Finish with Help Center and Claude so the client sees support and guidance built into the platform."
+      ],
+      questions: [
+        "Give me a strong live demo flow for this platform.",
+        "How should I present this to a new agency owner in under 10 minutes?"
+      ]
+    },
+    {
       title: "Optional Integrations Setup",
       audience: "Admins",
       summary: "These features are optional and can be configured later without changing the core workflow.",
@@ -1339,6 +1356,114 @@ function downloadLeadImportTemplate() {
   const sheet = XLSX.utils.json_to_sheet(templateRows);
   XLSX.utils.book_append_sheet(workbook, sheet, "Lead Import Template");
   XLSX.writeFile(workbook, "golden-leaf-lead-import-template.csv", { bookType: "csv" });
+}
+
+function downloadDemoLeadImportFile() {
+  const leadSources = state.setup.leadSources;
+  const products = state.setup.products;
+  const source = (name) => leadSources.find((item) => item === name) || leadSources[0] || "Purchased Leads";
+  const product = (name) => products.find((item) => item === name) || products[0] || "GL / BOP";
+  const today = new Date();
+  const isoFromOffset = (days) => {
+    const next = new Date(today);
+    next.setDate(next.getDate() + days);
+    return next.toISOString().slice(0, 10);
+  };
+
+  const demoRows = [
+    {
+      "Business Name": "Oak Street Builders",
+      "Lead Source": source("Purchased Leads"),
+      "Contact Name": "Maya Ellis",
+      "Contact Email": "maya@oakstreetbuilders.com",
+      "Contact Phone": "317-555-0182",
+      "Date Received": isoFromOffset(-2),
+      "Product Focus": product("GL / BOP"),
+      "Target Niche": "Contractor",
+      "Assigned Rep": "",
+      Status: "New Lead",
+      "Lead Cost": 46,
+      "Next Task": "Intro call and intake review",
+      "Next Follow-Up Date": isoFromOffset(1),
+      Notes: "Fresh inbound contractor account for demo."
+    },
+    {
+      "Business Name": "Riverbend Dental Group",
+      "Lead Source": source("Referral"),
+      "Contact Name": "Lauren Hale",
+      "Contact Email": "lauren@riverbenddental.com",
+      "Contact Phone": "463-555-0141",
+      "Date Received": isoFromOffset(-8),
+      "Product Focus": product("Workers Comp"),
+      "Target Niche": "Dental",
+      "Assigned Rep": "",
+      Status: "Quoted",
+      "Lead Cost": 0,
+      "Premium Quoted": 12850,
+      "Next Task": "Quote follow-up",
+      "Next Follow-Up Date": isoFromOffset(-1),
+      Notes: "Use this one to show overdue follow-up and quoted revenue."
+    },
+    {
+      "Business Name": "Northside Fitness Co.",
+      "Lead Source": source("Self-Generated"),
+      "Contact Name": "Jared Cole",
+      "Contact Email": "jared@northsidefitness.co",
+      "Contact Phone": "812-555-0119",
+      "Date Received": isoFromOffset(-15),
+      "Product Focus": product("Commercial Auto"),
+      "Target Niche": "Fitness",
+      "Assigned Rep": "",
+      Status: "Pending Decision",
+      "Lead Cost": 0,
+      "Premium Quoted": 9420,
+      "Next Task": "Decision check-in",
+      "Next Follow-Up Date": isoFromOffset(2),
+      Notes: "Good mid-pipeline example for board movement."
+    },
+    {
+      "Business Name": "Harvest Kitchen Supply",
+      "Lead Source": source("Purchased Leads"),
+      "Contact Name": "Tessa Warren",
+      "Contact Email": "tessa@harvestkitchen.com",
+      "Contact Phone": "765-555-0166",
+      "Date Received": isoFromOffset(-35),
+      "Product Focus": product("GL / BOP"),
+      "Target Niche": "Restaurant Supplier",
+      "Assigned Rep": "",
+      Status: "Bound",
+      "Policy Type": "New",
+      "Effective Date": isoFromOffset(-10),
+      "Premium Bound": 18600,
+      "Next Task": "Welcome and document delivery",
+      Notes: "Bound account that should appear in commission and renewal views."
+    },
+    {
+      "Business Name": "Lakeshore Property Group",
+      "Lead Source": source("Referral"),
+      "Contact Name": "Daniel Brooks",
+      "Contact Email": "daniel@lakeshorepg.com",
+      "Contact Phone": "219-555-0174",
+      "Date Received": isoFromOffset(-50),
+      "Product Focus": product("GL / BOP"),
+      "Target Niche": "Property Management",
+      "Assigned Rep": "",
+      Status: "Bound",
+      "Policy Type": "Renewal",
+      "Renewal Status": "Quoted",
+      "Effective Date": isoFromOffset(-300),
+      "Expiration Date": isoFromOffset(21),
+      "Premium Bound": 22450,
+      "Next Task": "Renewal review call",
+      "Next Follow-Up Date": isoFromOffset(3),
+      Notes: "Use this one to show renewal urgency and retention workflow."
+    }
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(demoRows);
+  XLSX.utils.book_append_sheet(workbook, sheet, "Demo Leads");
+  XLSX.writeFile(workbook, "golden-leaf-demo-leads.csv", { bookType: "csv" });
 }
 
 async function importLeadPreviewRows() {
@@ -2525,7 +2650,10 @@ function render() {
                   <h3>Bulk Lead Import</h3>
                   <p>Upload a CSV from Excel or Google Sheets, preview assignments, and import the batch without manual re-entry.</p>
                 </div>
-                <button class="button button-ghost" id="downloadLeadImportTemplateButton" type="button">Download CSV Template</button>
+                <div class="toolbar-group">
+                  <button class="button button-ghost" id="downloadLeadImportTemplateButton" type="button">Download CSV Template</button>
+                  <button class="button button-ghost" id="downloadDemoLeadImportButton" type="button">Download Demo Leads</button>
+                </div>
               </div>
               <div class="import-controls setup-import-controls">
                 <label class="mini-card">
@@ -4696,6 +4824,18 @@ function bindAppEvents() {
         downloadLeadImportTemplate();
       } catch (error) {
         state.ui.error = error.message || "Could not download the import template.";
+        render();
+      }
+    });
+  }
+
+  const downloadDemoLeadImportButton = document.getElementById("downloadDemoLeadImportButton");
+  if (downloadDemoLeadImportButton) {
+    downloadDemoLeadImportButton.addEventListener("click", () => {
+      try {
+        downloadDemoLeadImportFile();
+      } catch (error) {
+        state.ui.error = error.message || "Could not download the demo lead file.";
         render();
       }
     });
