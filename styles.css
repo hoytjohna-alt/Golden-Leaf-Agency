@@ -915,6 +915,35 @@ main {
   gap: 12px;
 }
 
+.upload-progress-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(27, 58, 92, 0.08);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff, #f7f1e5);
+}
+
+.upload-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.upload-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(27, 58, 92, 0.08);
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--gold));
+}
+
 .attachment-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 180px auto;

@@ -91,6 +91,9 @@ const state = {
     activeTab: "dashboard",
     bulkAssignUserId: "",
     selectedOpportunityIds: [],
+    uploadProgress: 0,
+    uploadingAttachmentName: "",
+    uploadingAttachmentOpportunityId: "",
     opportunityView: "board",
     opportunityTab: "stage",
     setupTab: "users",
@@ -295,19 +298,13 @@ function updateDragAutoScroll(pointerY) {
 }
 
 function setupVersionWatchers() {
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      void checkForNewBuild();
-    }
-  });
-  window.addEventListener("focus", () => {
-    void checkForNewBuild();
-  });
   if (versionCheckTimer) {
     window.clearInterval(versionCheckTimer);
   }
   versionCheckTimer = window.setInterval(() => {
-    void checkForNewBuild();
+    if (document.visibilityState === "visible") {
+      void checkForNewBuild();
+    }
   }, VERSION_CHECK_INTERVAL_MS);
 }
 
@@ -335,12 +332,8 @@ async function refreshForNewBuild() {
     return;
   }
   sessionStorage.setItem(APP_RECOVERY_STORAGE_KEY, `refresh:${APP_BUILD_ID}`);
-  resetTransientUiState();
-  state.ui.notice = "A new version of the app was deployed. Refreshing your workspace.";
+  state.ui.notice = "A new version of the app is available. Refresh when convenient to load it.";
   render();
-  window.setTimeout(() => {
-    window.location.reload();
-  }, 250);
 }
 
 function withTimeout(promise, timeoutMs) {
@@ -2159,6 +2152,17 @@ function renderOpportunityAttachments(row, attachments) {
 
   return `
     <div class="attachment-stack">
+      ${state.ui.uploadingAttachmentOpportunityId === row.id ? `
+        <div class="upload-progress-card">
+          <div class="upload-progress-head">
+            <strong>Uploading ${escapeHtml(state.ui.uploadingAttachmentName || "file")}</strong>
+            <span>${Math.round(state.ui.uploadProgress)}%</span>
+          </div>
+          <div class="upload-progress-track">
+            <div class="upload-progress-fill" style="width: ${Math.max(4, state.ui.uploadProgress)}%"></div>
+          </div>
+        </div>
+      ` : ""}
       <form id="attachmentUploadForm" class="attachment-form">
         <input type="hidden" name="opportunityId" value="${escapeHtml(row.id)}" />
         <label class="full-span">
@@ -2176,7 +2180,9 @@ function renderOpportunityAttachments(row, attachments) {
             <option value="Other">Other</option>
           </select>
         </label>
-        <button class="button button-primary" type="submit">Upload File</button>
+        <button class="button button-primary" type="submit" ${state.ui.uploadingAttachmentOpportunityId === row.id ? "disabled" : ""}>
+          ${state.ui.uploadingAttachmentOpportunityId === row.id ? "Uploading..." : "Upload File"}
+        </button>
       </form>
       ${attachments.length
         ? `
@@ -3194,39 +3200,49 @@ async function uploadOpportunityAttachment({ opportunityId, fileType, file }) {
 
   const safeName = file.name.replace(/[^\w.-]+/g, "-");
   const filePath = `${opportunityId}/${Date.now()}-${safeName}`;
-  const { error: uploadError } = await state.supabase.storage
-    .from(ATTACHMENTS_BUCKET)
-    .upload(filePath, file, { upsert: false });
-  if (uploadError) {
-    throw new Error("Upload failed. Run the latest Supabase schema and confirm the storage bucket exists.");
-  }
+  state.ui.uploadingAttachmentOpportunityId = opportunityId;
+  state.ui.uploadingAttachmentName = file.name;
+  state.ui.uploadProgress = 0;
+  state.ui.error = "";
+  render();
 
-  const { error: metadataError } = await state.supabase.from("opportunity_attachments").insert({
-    opportunity_id: opportunityId,
-    file_name: file.name,
-    file_path: filePath,
-    file_type: fileType,
-    file_size: file.size,
-    mime_type: file.type || "application/octet-stream",
-    created_by: state.profile?.id || null,
-    created_by_name: state.profile?.full_name || state.session?.user?.email || "System"
-  });
+  try {
+    await uploadFileWithProgress(filePath, file, (progress) => {
+      state.ui.uploadProgress = progress;
+      render();
+    });
 
-  if (metadataError) {
-    await state.supabase.storage.from(ATTACHMENTS_BUCKET).remove([filePath]);
-    if (String(metadataError.message || "").includes("opportunity_attachments")) {
-      throw new Error("Attachment metadata table is missing. Run the latest Supabase schema first.");
+    const { error: metadataError } = await state.supabase.from("opportunity_attachments").insert({
+      opportunity_id: opportunityId,
+      file_name: file.name,
+      file_path: filePath,
+      file_type: fileType,
+      file_size: file.size,
+      mime_type: file.type || "application/octet-stream",
+      created_by: state.profile?.id || null,
+      created_by_name: state.profile?.full_name || state.session?.user?.email || "System"
+    });
+
+    if (metadataError) {
+      await state.supabase.storage.from(ATTACHMENTS_BUCKET).remove([filePath]);
+      if (String(metadataError.message || "").includes("opportunity_attachments")) {
+        throw new Error("Attachment metadata table is missing. Run the latest Supabase schema first.");
+      }
+      throw metadataError;
     }
-    throw metadataError;
-  }
 
-  await logOpportunityActivity({
-    opportunityId,
-    title: "Attachment uploaded",
-    detail: `${file.name} added as ${fileType}.`
-  });
-  state.ui.notice = `${file.name} uploaded successfully.`;
-  await loadWorkspace();
+    await logOpportunityActivity({
+      opportunityId,
+      title: "Attachment uploaded",
+      detail: `${file.name} added as ${fileType}.`
+    });
+    state.ui.notice = `${file.name} uploaded successfully.`;
+    await loadWorkspace();
+  } finally {
+    state.ui.uploadProgress = 0;
+    state.ui.uploadingAttachmentName = "";
+    state.ui.uploadingAttachmentOpportunityId = "";
+  }
 }
 
 async function openOpportunityAttachment(attachmentId) {
@@ -3274,6 +3290,53 @@ async function deleteOpportunityAttachment(attachmentId) {
   });
   state.ui.notice = `${attachment.file_name} deleted.`;
   await loadWorkspace();
+}
+
+async function uploadFileWithProgress(filePath, file, onProgress) {
+  const session = state.session || (await state.supabase.auth.getSession()).data.session;
+  if (!session?.access_token) {
+    throw new Error("Your session expired. Sign in again before uploading.");
+  }
+
+  const encodedPath = filePath
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  const uploadUrl = `${APP_CONFIG.supabaseUrl}/storage/v1/object/${ATTACHMENTS_BUCKET}/${encodedPath}`;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadUrl, true);
+    xhr.setRequestHeader("apikey", APP_CONFIG.supabaseAnonKey);
+    xhr.setRequestHeader("Authorization", `Bearer ${session.access_token}`);
+    xhr.setRequestHeader("x-upsert", "false");
+    if (file.type) {
+      xhr.setRequestHeader("Content-Type", file.type);
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && typeof onProgress === "function") {
+        onProgress((event.loaded / event.total) * 100);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (typeof onProgress === "function") {
+          onProgress(100);
+        }
+        resolve();
+        return;
+      }
+      reject(new Error("Upload failed. Run the latest Supabase schema and confirm the storage bucket exists."));
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Upload failed. Check your connection and try again."));
+    };
+
+    xhr.send(file);
+  });
 }
 
 async function quickUpdateOpportunityStatus(opportunityId, nextStatus) {
