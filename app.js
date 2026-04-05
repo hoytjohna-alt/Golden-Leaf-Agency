@@ -76,7 +76,8 @@ const state = {
     dateTo: "",
     activeOpportunityId: null,
     bulkAssignUserId: "",
-    selectedOpportunityIds: []
+    selectedOpportunityIds: [],
+    opportunityView: "board"
   }
 };
 
@@ -431,6 +432,17 @@ function getAssignedLeadCount(profileId) {
   return state.opportunities.filter((item) => item.assignedUserId === profileId).length;
 }
 
+function getOpportunityView() {
+  return state.ui.opportunityView;
+}
+
+function getPipelineGroups(rows) {
+  return state.setup.statuses.map((status) => ({
+    status,
+    rows: rows.filter((row) => row.status === status)
+  }));
+}
+
 function summarize(rows) {
   return {
     totalLeads: rows.length,
@@ -563,6 +575,8 @@ function render() {
   const assignableProfiles = getAssignableProfiles();
   const visibleManagedProfiles = getVisibleManagedProfiles();
   const removedProfiles = getRemovedProfiles();
+  const opportunityView = getOpportunityView();
+  const pipelineGroups = getPipelineGroups(listRows);
   const summary = summarize(timeframeRows);
   const scorecards = getRepScorecards(timeframeRows);
   const roiRows = getRoiRows(timeframeRows);
@@ -609,7 +623,11 @@ function render() {
       <div class="panel-header">
         <div>
           <h2>${isAdmin() ? "Master Opportunity Log" : "My Opportunity Log"}</h2>
-          <p>${isAdmin() ? "Admin can assign, edit, and inspect every producer pipeline." : "You can fully manage every lead assigned to you."}</p>
+          <p>${isAdmin() ? "Admin can assign, edit, and inspect every producer pipeline." : "Your pipeline now works as a live status board for faster daily lead management."}</p>
+        </div>
+        <div class="view-toggle">
+          <button class="button ${opportunityView === "board" ? "button-primary" : "button-ghost"}" data-opportunity-view="board" type="button">Board</button>
+          <button class="button ${opportunityView === "table" ? "button-primary" : "button-ghost"}" data-opportunity-view="table" type="button">Table</button>
         </div>
       </div>
       <div class="table-card filter-card">
@@ -676,8 +694,25 @@ function render() {
             </div>
           </div>
         ` : ""}
+        <div class="stage-strip">
+          ${pipelineGroups.map((group) => `
+            <article class="stage-pill-card">
+              <h4>${escapeHtml(group.status)}</h4>
+              <strong>${group.rows.length}</strong>
+            </article>
+          `).join("")}
+        </div>
       </div>
       <div class="two-column">
+        <div class="${opportunityView === "board" ? "table-card board-host" : "table-card"}">
+          ${opportunityView === "board"
+            ? renderOpportunityBoard(pipelineGroups)
+            : `
+              <div class="table-wrap">
+                ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
+              </div>
+            `}
+        </div>
         <div class="form-card">
           <div class="panel-header">
             <div>
@@ -687,11 +722,6 @@ function render() {
             ${activeOpportunity.id ? `<span class="pill">${escapeHtml(activeOpportunity.status)}</span>` : ""}
           </div>
           ${renderOpportunityForm(activeOpportunity)}
-        </div>
-        <div class="table-card">
-          <div class="table-wrap">
-            ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
-          </div>
         </div>
       </div>
     </section>
@@ -1187,6 +1217,54 @@ function renderOpportunityTable(rows, selectedRows) {
   `;
 }
 
+function renderOpportunityBoard(groups) {
+  const hasRows = groups.some((group) => group.rows.length);
+  if (!hasRows) {
+    return document.getElementById("emptyStateTemplate").innerHTML;
+  }
+
+  return `
+    <div class="board-scroll">
+      <div class="kanban-board">
+        ${groups.map((group) => `
+          <section class="kanban-column" data-stage-drop="${escapeHtml(group.status)}">
+            <header class="kanban-column-header">
+              <div>
+                <h3>${escapeHtml(group.status)}</h3>
+                <p>${group.rows.length} lead${group.rows.length === 1 ? "" : "s"}</p>
+              </div>
+            </header>
+            <div class="kanban-column-body">
+              ${group.rows.map((row) => `
+                <article
+                  class="kanban-card"
+                  draggable="true"
+                  data-card-drag="${escapeHtml(row.id)}"
+                  data-open-opportunity="${escapeHtml(row.id)}"
+                >
+                  <div class="kanban-card-top">
+                    <strong>${escapeHtml(row.businessName)}</strong>
+                    ${row.followUpOverdue ? '<span class="status-pill" data-tone="bad">Overdue</span>' : ""}
+                  </div>
+                  <div class="subtle">${escapeHtml(row.leadNumber)} · ${escapeHtml(row.leadSource)}</div>
+                  <div class="kanban-meta">
+                    <span class="tag">${escapeHtml(row.assignedRepName)}</span>
+                    <span class="tag">${escapeHtml(row.followUpBucket)}</span>
+                  </div>
+                  <div class="kanban-meta">
+                    <span>Quoted ${formatCurrency(row.premiumQuoted)}</span>
+                    <span>Bound ${formatCurrency(row.premiumBound)}</span>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          </section>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function coachingInput(row, field, value) {
   if (!isAdmin()) {
     return `<span>${escapeHtml(value)}</span>`;
@@ -1280,6 +1358,13 @@ function bindAppEvents() {
       render();
     });
   }
+
+  document.querySelectorAll("[data-opportunity-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ui.opportunityView = button.dataset.opportunityView;
+      render();
+    });
+  });
 
   const loginForm = document.getElementById("loginForm");
   if (loginForm) {
@@ -1404,6 +1489,44 @@ function bindAppEvents() {
     row.addEventListener("click", () => {
       state.ui.activeOpportunityId = row.dataset.selectOpportunity;
       render();
+    });
+  });
+
+  document.querySelectorAll("[data-open-opportunity]").forEach((card) => {
+    card.addEventListener("click", () => {
+      state.ui.activeOpportunityId = card.dataset.openOpportunity;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-card-drag]").forEach((card) => {
+    card.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", card.dataset.cardDrag);
+    });
+  });
+
+  document.querySelectorAll("[data-stage-drop]").forEach((column) => {
+    column.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      column.classList.add("is-drop-target");
+    });
+    column.addEventListener("dragleave", () => {
+      column.classList.remove("is-drop-target");
+    });
+    column.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      column.classList.remove("is-drop-target");
+      const opportunityId = event.dataTransfer.getData("text/plain");
+      const nextStatus = column.dataset.stageDrop;
+      if (!opportunityId || !nextStatus) return;
+      try {
+        await quickUpdateOpportunityStatus(opportunityId, nextStatus);
+      } catch (error) {
+        state.ui.error = error.message || "Could not move that lead.";
+        render();
+      }
     });
   });
 
@@ -1628,6 +1751,31 @@ async function saveOpportunity(formData) {
     .single();
   if (error) throw error;
   state.ui.activeOpportunityId = data.id;
+  await loadWorkspace();
+}
+
+async function quickUpdateOpportunityStatus(opportunityId, nextStatus) {
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity || opportunity.status === nextStatus) {
+    return;
+  }
+
+  const payload = mapOpportunityToDb({
+    ...opportunity,
+    status: nextStatus,
+    lastActivityDate: todayIso()
+  });
+
+  const { error } = await state.supabase
+    .from("opportunities")
+    .update(payload)
+    .eq("id", opportunityId);
+
+  if (error) {
+    throw error;
+  }
+
+  state.ui.notice = `${opportunity.businessName} moved to ${nextStatus}. Admin dashboards will reflect the update automatically.`;
   await loadWorkspace();
 }
 

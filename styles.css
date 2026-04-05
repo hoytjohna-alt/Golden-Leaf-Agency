@@ -349,10 +349,44 @@ main {
   flex: 1;
 }
 
+.view-toggle {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .filter-card,
 .bulk-card,
 .invite-form {
   margin-bottom: 16px;
+}
+
+.stage-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stage-pill-card {
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fafaf7, #f3f1ea);
+  border: 1px solid rgba(24, 48, 40, 0.08);
+}
+
+.stage-pill-card h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stage-pill-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.7rem;
 }
 
 .bulk-card {
@@ -384,6 +418,89 @@ main {
 
 .archived-users h4 {
   margin: 0 0 12px;
+}
+
+.board-host {
+  overflow: hidden;
+}
+
+.board-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.kanban-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.kanban-column {
+  min-height: 520px;
+  padding: 14px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(244, 247, 242, 0.96), rgba(250, 248, 243, 0.98));
+  border: 1px solid rgba(24, 48, 40, 0.08);
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.kanban-column.is-drop-target {
+  border-color: rgba(39, 93, 70, 0.42);
+  box-shadow: 0 18px 36px rgba(39, 93, 70, 0.08);
+  transform: translateY(-2px);
+}
+
+.kanban-column-header h3 {
+  margin: 0;
+}
+
+.kanban-column-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.kanban-column-body {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.kanban-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: white;
+  border: 1px solid rgba(24, 48, 40, 0.08);
+  cursor: grab;
+  box-shadow: 0 10px 22px rgba(24, 48, 40, 0.05);
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-card:hover {
+  border-color: rgba(39, 93, 70, 0.22);
+  transform: translateY(-1px);
+}
+
+.kanban-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.kanban-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 input,
@@ -585,6 +702,10 @@ tbody tr:hover {
   .toolbar-grid,
   .invite-form {
     grid-template-columns: 1fr;
+  }
+
+  .kanban-board {
+    grid-auto-columns: minmax(220px, 82vw);
   }
 
   .bar-row {
