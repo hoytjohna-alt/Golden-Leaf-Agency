@@ -455,6 +455,7 @@ function mapOpportunityFromDb(row) {
     carrier: row.carrier,
     incumbentCarrier: row.incumbent_carrier || "",
     policyType: row.policy_type,
+    policyTermMonths: Number(row.policy_term_months || 12),
     renewalStatus: row.renewal_status || "Not Started",
     effectiveDate: row.effective_date || "",
     expirationDate: row.expiration_date || "",
@@ -473,6 +474,14 @@ function mapOpportunityFromDb(row) {
 
 function mapOpportunityToDb(formData) {
   const assignedProfile = state.profiles.find((item) => item.id === formData.assignedUserId) || state.profile;
+  const policyTermMonths = Number(formData.policyTermMonths || 12);
+  const resolvedExpirationDate =
+    formData.expirationDate ||
+    inferExpirationDate({
+      status: formData.status,
+      effectiveDate: formData.effectiveDate,
+      policyTermMonths
+    });
   return {
     id: formData.id || undefined,
     lead_number: formData.leadNumber || generateLeadNumber(formData.dateReceived),
@@ -489,9 +498,10 @@ function mapOpportunityToDb(formData) {
     carrier: formData.carrier,
     incumbent_carrier: formData.incumbentCarrier || "",
     policy_type: formData.policyType,
+    policy_term_months: policyTermMonths,
     renewal_status: formData.renewalStatus || "Not Started",
     effective_date: formData.effectiveDate || null,
-    expiration_date: formData.expirationDate || null,
+    expiration_date: resolvedExpirationDate || null,
     lead_cost: Number(formData.leadCost || 0),
     premium_quoted: Number(formData.premiumQuoted || 0),
     premium_bound: Number(formData.premiumBound || 0),
@@ -513,6 +523,20 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function addMonthsToIso(dateValue, months) {
+  const date = parseDate(dateValue);
+  if (!date || !months) return "";
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + Number(months));
+  next.setDate(next.getDate() - 1);
+  return next.toISOString().slice(0, 10);
+}
+
+function inferExpirationDate({ status, effectiveDate, policyTermMonths }) {
+  if (status !== "Bound" || !effectiveDate) return "";
+  return addMonthsToIso(effectiveDate, policyTermMonths || 12);
 }
 
 function startOfWeek(dateValue) {
@@ -590,8 +614,15 @@ function computeOpportunity(row) {
         : dayDiff(todayIso(), row.nextFollowUpDate) <= 1
           ? "Due Soon"
           : "Future";
-  const daysToExpiration = row.expirationDate ? dayDiff(todayIso(), row.expirationDate) : null;
-  const renewalTracked = row.policyType === "Renewal" || Boolean(row.expirationDate);
+  const resolvedExpirationDate =
+    row.expirationDate ||
+    inferExpirationDate({
+      status: row.status,
+      effectiveDate: row.effectiveDate,
+      policyTermMonths: row.policyTermMonths
+    });
+  const daysToExpiration = resolvedExpirationDate ? dayDiff(todayIso(), resolvedExpirationDate) : null;
+  const renewalTracked = row.bound || row.policyType === "Renewal" || Boolean(resolvedExpirationDate);
   const renewalClosed = ["Retained", "Lost at Renewal"].includes(row.renewalStatus);
   const renewalApproaching = renewalTracked && daysToExpiration !== null && daysToExpiration >= 0 && daysToExpiration <= 90;
   const renewalUrgency =
@@ -631,6 +662,7 @@ function computeOpportunity(row) {
     month: row.dateReceived?.slice(0, 7) || "",
     freshLead: dayDiff(row.dateReceived, todayIso()) <= Number(state.setup.assumptions.freshLeadWindowDays || 3),
     followUpBucket,
+    resolvedExpirationDate,
     daysToExpiration,
     renewalTracked,
     renewalClosed,
@@ -1899,6 +1931,14 @@ function renderOpportunityForm(row) {
           </select>
         </label>
         <label>
+          Policy Term
+          <select name="policyTermMonths">
+            <option value="12" ${Number(row.policyTermMonths || 12) === 12 ? "selected" : ""}>12 months</option>
+            <option value="6" ${Number(row.policyTermMonths || 12) === 6 ? "selected" : ""}>6 months</option>
+            <option value="3" ${Number(row.policyTermMonths || 12) === 3 ? "selected" : ""}>3 months</option>
+          </select>
+        </label>
+        <label>
           Effective Date
           <input type="date" name="effectiveDate" value="${escapeHtml(row.effectiveDate || "")}" />
         </label>
@@ -1995,7 +2035,7 @@ function renderLeadWorkspace(row, timeline) {
             </article>
             <article class="mini-card">
               <h3>Renewal Window</h3>
-              <strong>${escapeHtml(row.expirationDate || "Not set")}</strong>
+              <strong>${escapeHtml(row.resolvedExpirationDate || row.expirationDate || "Not set")}</strong>
               <div class="stat-meta">${escapeHtml(row.renewalStatus || "Not Started")} · ${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</div>
             </article>
             <article class="mini-card">
@@ -2097,7 +2137,7 @@ function renderOpportunityTable(rows, selectedRows) {
             <td>${statusPill(row.status, row.followUpOverdue)}</td>
             <td>
               <div>${escapeHtml(row.renewalStatus || "Not Started")}</div>
-              <div class="subtle">${escapeHtml(row.expirationDate || "No expiration date")}</div>
+              <div class="subtle">${escapeHtml(row.resolvedExpirationDate || row.expirationDate || "No expiration date")}</div>
             </td>
             <td><span class="tag">${escapeHtml(row.followUpBucket)}</span></td>
             <td>${formatCurrency(row.premiumQuoted)}</td>
@@ -2311,7 +2351,7 @@ function renderRenewalQueue(rows) {
             </span>
           </div>
           <div class="subtle">${escapeHtml(row.assignedRepName)} · ${escapeHtml(row.carrier || "No carrier")}</div>
-          <p>${escapeHtml(row.expirationDate || "No expiration date")} · ${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</p>
+          <p>${escapeHtml(row.resolvedExpirationDate || row.expirationDate || "No expiration date")} · ${escapeHtml(row.incumbentCarrier || "No incumbent carrier")}</p>
           <div class="task-card-meta">
             <span>${formatRenewalCountdown(row.daysToExpiration)}</span>
             <span>${escapeHtml(row.nextTask || "No next task")}</span>
@@ -2455,6 +2495,7 @@ function blankOpportunity() {
     productFocus: state.setup.products[0] || "",
     carrier: state.setup.carriers[0]?.name || "",
     policyType: "New",
+    policyTermMonths: 12,
     renewalStatus: "Not Started",
     leadCost: 0,
     premiumQuoted: 0,
@@ -3275,9 +3316,10 @@ function exportAgencyWorkbook() {
     Carrier: row.carrier,
     "Incumbent Carrier": row.incumbentCarrier,
     "Policy Type": row.policyType,
+    "Policy Term (Months)": row.policyTermMonths,
     "Renewal Status": row.renewalStatus,
     "Effective Date": row.effectiveDate,
-    "Expiration Date": row.expirationDate,
+    "Expiration Date": row.resolvedExpirationDate || row.expirationDate,
     Status: row.status,
     "Lead Cost": row.leadCost,
     "Premium Quoted": row.premiumQuoted,
