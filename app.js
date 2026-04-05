@@ -90,6 +90,7 @@ const state = {
     bulkAssignUserId: "",
     selectedOpportunityIds: [],
     opportunityView: "board",
+    setupTab: "users",
     carrierEditing: false,
     assumptionEditing: false
   }
@@ -661,9 +662,18 @@ function getAvailableTabs() {
   return [
     { id: "dashboard", label: "Dashboard" },
     { id: "opportunities", label: isAdmin() ? "Pipeline" : "My Pipeline" },
+    ...(isAdmin() ? [{ id: "reports", label: "Reports" }] : []),
     { id: "scorecards", label: "Scorecards" },
     { id: "coaching", label: "Coaching" },
     ...(isAdmin() ? [{ id: "setup", label: "Setup" }] : [])
+  ];
+}
+
+function getSetupTabs() {
+  return [
+    { id: "users", label: "Users" },
+    { id: "assumptions", label: "Assumptions" },
+    { id: "carriers", label: "Carrier Table" }
   ];
 }
 
@@ -1076,28 +1086,37 @@ function render() {
             : renderCommissionList(repCommissionRows)}
         </article>
       </div>
-      ${isAdmin() ? `
-        <div class="two-column">
-          <article class="table-card">
-            <div class="panel-header">
-              <div>
-                <h3>Rep Performance Snapshot</h3>
-                <p>See who is converting, who is overdue, and where coaching pressure belongs.</p>
-              </div>
-            </div>
-            ${renderOwnerRepPerformance(ownerRepPerformanceRows)}
-          </article>
-          <article class="table-card">
-            <div class="panel-header">
-              <div>
-                <h3>Lead Source Profitability</h3>
-                <p>Revenue, spend, and return by source so owners can decide where to double down.</p>
-              </div>
-            </div>
-            ${renderOwnerSourcePerformance(ownerSourcePerformanceRows)}
-          </article>
+    </section>
+    ` : ""}
+
+    ${isAdmin() && state.ui.activeTab === "reports" ? `
+    <section class="panel workspace-panel" id="reports">
+      <div class="panel-header">
+        <div>
+          <h2>Owner Reports</h2>
+          <p>Rep performance and source profitability in one place without crowding the main dashboard.</p>
         </div>
-      ` : ""}
+      </div>
+      <div class="two-column compact-two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>Rep Performance Snapshot</h3>
+              <p>See who is converting, who is overdue, and where coaching pressure belongs.</p>
+            </div>
+          </div>
+          ${renderOwnerRepPerformance(ownerRepPerformanceRows)}
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>Lead Source Profitability</h3>
+              <p>Revenue, spend, and return by source so owners can decide where to double down.</p>
+            </div>
+          </div>
+          ${renderOwnerSourcePerformance(ownerSourcePerformanceRows)}
+        </article>
+      </div>
     </section>
     ` : ""}
 
@@ -1329,24 +1348,23 @@ function render() {
             <p>Only the admin can manage global assumptions, producer roster, and dropdown lists.</p>
           </div>
         </div>
-        <div class="panel-header">
-          <div>
-            <h3>Agency Assumptions</h3>
-            <p>Locked by default so forecasting and payout assumptions are not changed accidentally.</p>
-          </div>
-          <button class="button ${state.ui.assumptionEditing ? "button-secondary" : "button-ghost"}" id="toggleAssumptionEditingButton" type="button">
-            ${state.ui.assumptionEditing ? "Done Editing" : "Edit Assumptions"}
-          </button>
+        <div class="section-tabs" role="tablist" aria-label="Admin setup sections">
+          ${getSetupTabs()
+            .map(
+              (tab) => `
+                <button
+                  class="section-tab ${state.ui.setupTab === tab.id ? "is-active" : ""}"
+                  data-setup-tab="${tab.id}"
+                  type="button"
+                >
+                  ${escapeHtml(tab.label)}
+                </button>
+              `
+            )
+            .join("")}
         </div>
-        <div class="four-column">
-          ${Object.entries(state.setup.assumptions).map(([key, value]) => `
-            <label class="mini-card">
-              ${humanize(key)}
-              <input data-assumption="${key}" type="number" step="0.01" value="${value}" ${state.ui.assumptionEditing ? "" : "disabled"} />
-            </label>
-          `).join("")}
-        </div>
-        <div class="two-column">
+
+        ${state.ui.setupTab === "users" ? `
           <article class="table-card">
             <div class="panel-header">
               <div>
@@ -1432,6 +1450,31 @@ function render() {
               </div>
             ` : ""}
           </article>
+        ` : ""}
+
+        ${state.ui.setupTab === "assumptions" ? `
+          <article class="table-card">
+            <div class="panel-header">
+              <div>
+                <h3>Agency Assumptions</h3>
+                <p>Locked by default so forecasting and payout assumptions are not changed accidentally.</p>
+              </div>
+              <button class="button ${state.ui.assumptionEditing ? "button-secondary" : "button-ghost"}" id="toggleAssumptionEditingButton" type="button">
+                ${state.ui.assumptionEditing ? "Done Editing" : "Edit Assumptions"}
+              </button>
+            </div>
+            <div class="four-column compact-four-column">
+              ${Object.entries(state.setup.assumptions).map(([key, value]) => `
+                <label class="mini-card">
+                  ${humanize(key)}
+                  <input data-assumption="${key}" type="number" step="0.01" value="${value}" ${state.ui.assumptionEditing ? "" : "disabled"} />
+                </label>
+              `).join("")}
+            </div>
+          </article>
+        ` : ""}
+
+        ${state.ui.setupTab === "carriers" ? `
           <article class="table-card">
             <div class="panel-header">
               <div>
@@ -1463,7 +1506,7 @@ function render() {
               </table>
             </div>
           </article>
-        </div>
+        ` : ""}
       </section>
     ` : ""}
   `;
@@ -2224,6 +2267,13 @@ function bindAppEvents() {
   document.querySelectorAll("[data-app-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.ui.activeTab = button.dataset.appTab;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-setup-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ui.setupTab = button.dataset.setupTab;
       render();
     });
   });
