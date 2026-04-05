@@ -1,0 +1,2 @@
+[functions.claude-assistant]
+verify_jwt = false
