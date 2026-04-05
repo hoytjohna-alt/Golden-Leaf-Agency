@@ -2102,7 +2102,7 @@ function render() {
 
     ${state.ui.activeTab === "opportunities" ? `
     <section class="panel workspace-panel" id="opportunities">
-      <div class="panel-header">
+      <div class="panel-header pipeline-topbar">
         <div>
           <h2>${isAdmin() ? "Master Opportunity Log" : "My Opportunity Log"}</h2>
           <p>${isAdmin() ? "Separate create, update, and stage movement into cleaner working modes." : "Work new leads, updates, and stage changes in dedicated tabs instead of one crowded screen."}</p>
@@ -2123,7 +2123,7 @@ function render() {
           )
           .join("")}
       </div>
-      <div class="table-card filter-card">
+      <div class="table-card filter-card pipeline-workbar">
         <div class="toolbar">
           <div class="toolbar-grid">
             <label>
@@ -2164,7 +2164,7 @@ function render() {
           </div>
           <div class="toolbar-group">
             <button class="button button-ghost" id="clearFiltersButton" type="button">Clear Filters</button>
-            <div class="subtle">${listRows.length} visible</div>
+            <div class="pipeline-visible-count subtle">${listRows.length} visible</div>
           </div>
         </div>
         ${isAdmin() && state.ui.opportunityTab === "update" ? `
@@ -2202,17 +2202,19 @@ function render() {
         ${renderCreateLeadWorkspace()}
       ` : ""}
       ${state.ui.opportunityTab === "update" ? `
-        <div class="two-column">
-          <div class="table-card">
+        <div class="two-column pipeline-update-grid">
+          <div class="table-card pipeline-list-card">
             <div class="table-wrap">
               ${listRows.length ? renderOpportunityTable(listRows, getSelectedOpportunitySet()) : document.getElementById("emptyStateTemplate").innerHTML}
             </div>
           </div>
-          ${renderLeadWorkspace(activeOpportunity, activeOpportunityTimeline)}
+          <div class="pipeline-detail-shell">
+            ${renderLeadWorkspace(activeOpportunity, activeOpportunityTimeline)}
+          </div>
         </div>
       ` : ""}
       ${state.ui.opportunityTab === "stage" ? `
-        <div class="table-card board-host">
+        <div class="table-card board-host pipeline-board-card">
           ${renderOpportunityBoard(pipelinePhaseGroups)}
         </div>
       ` : ""}
