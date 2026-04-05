@@ -2860,14 +2860,14 @@ function renderIntegrations() {
   const smsReady = Boolean(state.communicationStatus?.sms?.configured);
   return `
     <section class="panel workspace-panel" id="integrations">
-      <div class="panel-header">
+      <div class="panel-header integrations-topbar">
         <div>
           <h2>Integrations</h2>
           <p>Connect tools that support day-to-day producer work and owner visibility.</p>
         </div>
       </div>
-      <div class="two-column compact-two-column">
-        <article class="table-card">
+      <div class="two-column compact-two-column integrations-grid">
+        <article class="table-card integrations-card integrations-card-primary">
           <div class="panel-header">
             <div>
               <h3>Google Calendar</h3>
@@ -2892,7 +2892,7 @@ function renderIntegrations() {
             <p class="notice">This connection is user-specific. Each rep can connect their own calendar, while admins can connect theirs separately.</p>
           </div>
         </article>
-        <article class="table-card">
+        <article class="table-card integrations-card">
           <div class="panel-header">
             <div>
               <h3>Outlook Calendar</h3>
@@ -2906,8 +2906,8 @@ function renderIntegrations() {
           </div>
         </article>
       </div>
-      <div class="two-column compact-two-column">
-        <article class="table-card">
+      <div class="two-column compact-two-column integrations-grid">
+        <article class="table-card integrations-card">
           <div class="panel-header">
             <div>
               <h3>Email and Text Delivery</h3>
@@ -2920,7 +2920,7 @@ function renderIntegrations() {
           </div>
           <p class="notice">Email reminders use the lead’s contact email. SMS reminders use the lead’s contact phone.</p>
         </article>
-        <article class="table-card">
+        <article class="table-card integrations-card">
           <div class="panel-header">
             <div>
               <h3>Reminder Templates</h3>
@@ -2991,7 +2991,7 @@ function renderHelpCenter() {
 
   return `
     <section class="panel workspace-panel" id="help">
-      <div class="panel-header">
+      <div class="panel-header help-topbar">
         <div>
           <h2>${isAdmin() ? "Admin Help Center" : "Producer Help Center"}</h2>
           <p>${isAdmin()

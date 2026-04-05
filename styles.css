@@ -735,12 +735,48 @@ main {
   align-items: start;
 }
 
+#integrations .integrations-topbar,
+#help .help-topbar {
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(27, 58, 92, 0.08);
+}
+
+#integrations .integrations-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#integrations .integrations-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+}
+
+#integrations .integrations-card-primary {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 239, 226, 0.95));
+}
+
+#integrations .integrations-card .panel-header h3,
+#help .help-article-card .panel-header h3 {
+  font-size: 0.98rem;
+}
+
+#integrations .integrations-card .panel-header p,
+#help .help-article-card .panel-header p,
+#help .help-center-callout .panel-header p {
+  font-size: 0.82rem;
+}
+
 #help .help-article-card {
   border-style: solid;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
 }
 
 #help .help-center-callout {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 240, 226, 0.96));
+}
+
+#help .help-question-row .button {
+  text-align: left;
+  justify-content: flex-start;
 }
 
 .panel-header {
@@ -1933,6 +1969,10 @@ tbody tr:hover td {
   }
 
   #reports .reports-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #integrations .integrations-grid {
     grid-template-columns: 1fr;
   }
 
