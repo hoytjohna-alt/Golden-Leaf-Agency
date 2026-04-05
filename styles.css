@@ -1168,6 +1168,43 @@ tbody tr:hover {
   margin-top: 12px;
 }
 
+.routing-static-note {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.import-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.import-status-card {
+  align-content: center;
+}
+
+.import-actions {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.import-preview-table td {
+  vertical-align: top;
+}
+
+.import-error-list {
+  display: grid;
+  gap: 4px;
+  color: var(--danger);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .settings-table td input,
 .settings-table td select {
   min-width: 90px;
@@ -1219,7 +1256,8 @@ tbody tr:hover {
 
   .toolbar-grid,
   .invite-form,
-  .attachment-form {
+  .attachment-form,
+  .import-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1301,8 +1339,13 @@ tbody tr:hover {
   .form-grid,
   .toolbar-grid,
   .invite-form,
-  .attachment-form {
+  .attachment-form,
+  .import-controls {
     grid-template-columns: 1fr;
+  }
+
+  .import-actions .button {
+    width: 100%;
   }
 
   .attachment-card {

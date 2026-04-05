@@ -104,7 +104,10 @@ const state = {
     opportunityTab: "stage",
     setupTab: "users",
     carrierEditing: false,
-    assumptionEditing: false
+    assumptionEditing: false,
+    importPreviewRows: [],
+    importFileName: "",
+    importingCsv: false
   }
 };
 
@@ -788,6 +791,9 @@ function getRoutingSuggestions(workloadRows) {
 }
 
 function getAssignedProfileForForm(formData, existingOpportunity = null) {
+  if (!isAdmin()) {
+    return state.profile;
+  }
   if (formData.assignedUserId && formData.assignedUserId !== "auto") {
     return state.profiles.find((item) => item.id === formData.assignedUserId) || state.profile;
   }
@@ -800,10 +806,15 @@ function getAssignedProfileForForm(formData, existingOpportunity = null) {
 function resolveAutoAssignedProfile(formData) {
   const activeReps = getAssignableProfiles();
   if (!activeReps.length) return null;
+  if (!isAdmin()) return state.profile;
+
+  if (String(formData.leadSource || "").trim().toLowerCase() === "self-generated") {
+    return state.profile;
+  }
 
   const { autoAssignEnabled, mode, sourceRules = [], roundRobinCursor = 0 } = state.setup.routingRules || seedSettings.routingRules;
   if (!autoAssignEnabled) {
-    return isAdmin() ? activeReps[0] : state.profile;
+    return state.profile;
   }
 
   if (mode === "source_rule") {
@@ -818,6 +829,276 @@ function resolveAutoAssignedProfile(formData) {
 
   const normalizedCursor = Number(roundRobinCursor || 0) % activeReps.length;
   return activeReps[normalizedCursor];
+}
+
+function normalizeImportHeader(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function matchConfiguredValue(value, options, fallback = "") {
+  if (!value && fallback) return fallback;
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  const direct = options.find((item) => item === raw);
+  if (direct) return direct;
+  const normalized = normalizeImportHeader(raw);
+  return options.find((item) => normalizeImportHeader(item) === normalized) || fallback;
+}
+
+function coerceImportDate(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (!parsed) return "";
+    return `${String(parsed.y).padStart(4, "0")}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+  }
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const normalized = raw.replace(/\//g, "-");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.valueOf())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function coerceImportNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const numeric = Number(String(value).replace(/[$,%\s,]/g, ""));
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function findProfileByImportValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = normalizeImportHeader(raw);
+  return getAssignableProfiles().find((profile) => {
+    const email = String(profile.email || "").trim().toLowerCase();
+    return profile.id === raw || email === raw.toLowerCase() || normalizeImportHeader(profile.full_name) === normalized;
+  }) || null;
+}
+
+function createLeadNumberFactory() {
+  const countsByDate = state.opportunities.reduce((acc, row) => {
+    const key = row.dateReceived || todayIso();
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  return (dateReceived) => {
+    const key = dateReceived || todayIso();
+    countsByDate[key] = (countsByDate[key] || 0) + 1;
+    const compact = `${key.slice(2, 4)}${key.slice(5, 7)}${key.slice(8, 10)}`;
+    return `${compact}-${String(countsByDate[key]).padStart(4, "0")}`;
+  };
+}
+
+function resolveImportedAssignedProfile(row, roundRobinState) {
+  const explicitProfile = findProfileByImportValue(row.assignedRepRaw);
+  if (row.assignedRepRaw && !explicitProfile) {
+    return { profile: null, strategy: "Assigned rep not recognized", error: `Assigned Rep "${row.assignedRepRaw}" does not match an active rep.` };
+  }
+  if (explicitProfile) {
+    return { profile: explicitProfile, strategy: "Explicit rep from file", error: "" };
+  }
+  if (!isAdmin()) {
+    return { profile: state.profile, strategy: "Imported by rep", error: "" };
+  }
+  if (String(row.leadSource || "").trim().toLowerCase() === "self-generated") {
+    return { profile: state.profile, strategy: "Self-generated kept with uploader", error: "" };
+  }
+
+  const activeReps = getAssignableProfiles();
+  if (!activeReps.length) {
+    return { profile: state.profile, strategy: "No active reps available", error: "" };
+  }
+
+  const { autoAssignEnabled, mode, sourceRules = [] } = state.setup.routingRules || seedSettings.routingRules;
+  if (!autoAssignEnabled) {
+    return { profile: state.profile, strategy: "Auto assign disabled, kept with uploader", error: "" };
+  }
+
+  if (mode === "source_rule") {
+    const matchedRule = sourceRules.find((rule) => rule.source === row.leadSource && rule.userId);
+    if (matchedRule) {
+      const matchedProfile = activeReps.find((item) => item.id === matchedRule.userId);
+      if (matchedProfile) {
+        return { profile: matchedProfile, strategy: `Source rule for ${row.leadSource}`, error: "" };
+      }
+    }
+  }
+
+  const nextIndex = Number(roundRobinState.cursor || 0) % activeReps.length;
+  const profile = activeReps[nextIndex];
+  roundRobinState.cursor = (nextIndex + 1) % activeReps.length;
+  return { profile, strategy: "Round robin fallback", error: "" };
+}
+
+function mapImportedLeadRow(rawRow, rowNumber, roundRobinState) {
+  const get = (...headers) => {
+    const entries = Object.entries(rawRow || {});
+    for (const header of headers) {
+      const found = entries.find(([key]) => normalizeImportHeader(key) === normalizeImportHeader(header));
+      if (found) return found[1];
+    }
+    return "";
+  };
+
+  const dateReceived = coerceImportDate(get("Date Received", "Received Date", "Lead Date")) || todayIso();
+  const leadSource = matchConfiguredValue(get("Lead Source", "Source"), state.setup.leadSources, state.setup.leadSources[0] || "");
+  const productFocus = matchConfiguredValue(get("Product Focus", "Product"), state.setup.products, state.setup.products[0] || "");
+  const carrier = matchConfiguredValue(get("Carrier"), state.setup.carriers.map((item) => item.name), state.setup.carriers[0]?.name || "");
+  const status = matchConfiguredValue(get("Status", "Pipeline Stage"), state.setup.statuses, state.setup.statuses[0] || "New Lead");
+  const policyType = matchConfiguredValue(get("Policy Type"), ["New", "Renewal"], "New");
+  const renewalStatus = matchConfiguredValue(get("Renewal Status"), getRenewalStatuses(), "Not Started");
+  const taskPriority = matchConfiguredValue(get("Task Priority", "Priority"), ["High", "Medium", "Low"], "Medium");
+  const policyTermMonths = [3, 6, 12].includes(coerceImportNumber(get("Policy Term", "Policy Term (Months)", "Term"), 12))
+    ? coerceImportNumber(get("Policy Term", "Policy Term (Months)", "Term"), 12)
+    : 12;
+  const businessName = String(get("Business Name", "Business", "Account Name")).trim();
+
+  const mappedRow = {
+    id: "",
+    leadNumber: "",
+    assignedUserId: "auto",
+    assignedRepName: "",
+    dateReceived,
+    leadSource,
+    businessName,
+    targetNiche: String(get("Target Niche", "Niche", "Industry")).trim(),
+    productFocus,
+    contactName: String(get("Contact Name", "Primary Contact")).trim(),
+    contactEmail: String(get("Contact Email", "Email")).trim(),
+    contactPhone: String(get("Contact Phone", "Phone")).trim(),
+    carrier,
+    incumbentCarrier: String(get("Incumbent Carrier")).trim(),
+    policyType,
+    policyTermMonths,
+    renewalStatus,
+    effectiveDate: coerceImportDate(get("Effective Date")),
+    expirationDate: coerceImportDate(get("Expiration Date")),
+    leadCost: coerceImportNumber(get("Lead Cost", "Cost"), 0),
+    premiumQuoted: coerceImportNumber(get("Premium Quoted", "Quoted Premium"), 0),
+    premiumBound: coerceImportNumber(get("Premium Bound", "Bound Premium"), 0),
+    status,
+    firstAttemptDate: coerceImportDate(get("First Attempt Date")),
+    lastActivityDate: coerceImportDate(get("Last Activity Date")),
+    nextFollowUpDate: coerceImportDate(get("Next Follow-Up Date", "Follow-Up Date")),
+    nextTask: String(get("Next Task", "Task")).trim(),
+    taskPriority,
+    notes: String(get("Notes", "Lead Notes")).trim(),
+    assignedRepRaw: String(get("Assigned Rep", "Rep", "Producer")).trim()
+  };
+
+  const errors = [];
+  if (!businessName) {
+    errors.push("Business Name is required.");
+  }
+
+  const assignment = resolveImportedAssignedProfile(mappedRow, roundRobinState);
+  if (assignment.error) {
+    errors.push(assignment.error);
+  }
+
+  mappedRow.assignedUserId = assignment.profile?.id || "";
+  mappedRow.assignedRepName = assignment.profile?.full_name || "";
+
+  return {
+    rowNumber,
+    strategy: assignment.strategy,
+    assigneeName: assignment.profile?.full_name || "Unassigned",
+    errors,
+    data: mappedRow
+  };
+}
+
+async function buildLeadImportPreview(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    throw new Error("That file does not contain any importable rows.");
+  }
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  if (!rows.length) {
+    throw new Error("That file does not contain any lead rows.");
+  }
+  const roundRobinState = {
+    cursor: Number(state.setup.routingRules?.roundRobinCursor || 0)
+  };
+  return rows.map((row, index) => mapImportedLeadRow(row, index + 2, roundRobinState));
+}
+
+function downloadLeadImportTemplate() {
+  const templateRows = [
+    {
+      "Business Name": "Acme Builders",
+      "Lead Source": "Purchased Leads",
+      "Contact Name": "Jordan Smith",
+      "Contact Email": "jordan@acmebuilders.com",
+      "Contact Phone": "555-555-0199",
+      "Date Received": todayIso(),
+      "Product Focus": state.setup.products[0] || "GL / BOP",
+      "Target Niche": "Contractor",
+      "Assigned Rep": "",
+      Status: "New Lead",
+      "Lead Cost": 42.5,
+      Notes: "Imported from owner lead batch"
+    }
+  ];
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(templateRows);
+  XLSX.utils.book_append_sheet(workbook, sheet, "Lead Import Template");
+  XLSX.writeFile(workbook, "golden-leaf-lead-import-template.csv", { bookType: "csv" });
+}
+
+async function importLeadPreviewRows() {
+  const validRows = state.ui.importPreviewRows.filter((row) => !row.errors.length);
+  if (!validRows.length) {
+    throw new Error("Fix the import errors before continuing.");
+  }
+
+  state.ui.importingCsv = true;
+  state.ui.error = "";
+  state.ui.notice = "";
+  render();
+
+  try {
+    const nextLeadNumber = createLeadNumberFactory();
+    const payloads = validRows.map((row) =>
+      mapOpportunityToDb({
+        ...row.data,
+        leadNumber: nextLeadNumber(row.data.dateReceived)
+      })
+    );
+
+    const { data, error } = await state.supabase
+      .from("opportunities")
+      .insert(payloads)
+      .select("*");
+    if (error) throw error;
+
+    await Promise.all(
+      (data || []).map((item) =>
+        logOpportunityActivity({
+          opportunityId: item.id,
+          title: "Lead imported",
+          detail: `${item.business_name || "Lead"} imported from ${state.ui.importFileName || "CSV"} and assigned to ${item.assigned_rep_name}.`
+        })
+      )
+    );
+
+    state.ui.importPreviewRows = [];
+    state.ui.importFileName = "";
+    state.ui.notice = `${payloads.length} lead${payloads.length === 1 ? "" : "s"} imported successfully.`;
+    await loadWorkspace();
+  } finally {
+    state.ui.importingCsv = false;
+  }
 }
 
 function getRemovedProfiles() {
@@ -1794,13 +2075,13 @@ function render() {
                   </select>
                 </label>
               </div>
-              <p class="notice">When admin chooses <code>Auto Assign</code> on a new lead, the app will apply the selected rule.</p>
+              <p class="notice">Rep-created leads stay with the rep who entered them. Self-generated leads are never routed away from the creator. Auto assign only applies to owner-entered or imported leads left on <code>Auto Assign</code>.</p>
             </article>
             <article class="table-card">
               <div class="panel-header">
                 <div>
                   <h3>Lead Source Routing</h3>
-                  <p>Optionally pin certain sources to specific reps before round robin is used.</p>
+                  <p>Optionally pin owner-fed lead sources to specific reps before round robin is used.</p>
                 </div>
               </div>
               <div class="table-wrap">
@@ -1814,14 +2095,19 @@ function render() {
                   <tbody>
                     ${state.setup.leadSources.map((source) => {
                       const rule = state.setup.routingRules.sourceRules.find((item) => item.source === source);
+                      const sourceLocked = source === "Self-Generated";
                       return `
                         <tr>
                           <td>${escapeHtml(source)}</td>
                           <td>
-                            <select data-routing-source="${escapeHtml(source)}">
-                              <option value="">Use default rule</option>
-                              ${assignableProfiles.map((profile) => `<option value="${profile.id}" ${rule?.userId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
-                            </select>
+                            ${sourceLocked ? `
+                              <div class="routing-static-note">Creator keeps ownership</div>
+                            ` : `
+                              <select data-routing-source="${escapeHtml(source)}">
+                                <option value="">Use routing mode default</option>
+                                ${assignableProfiles.map((profile) => `<option value="${profile.id}" ${rule?.userId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
+                              </select>
+                            `}
                           </td>
                         </tr>
                       `;
@@ -1829,6 +2115,63 @@ function render() {
                   </tbody>
                 </table>
               </div>
+            </article>
+            <article class="table-card">
+              <div class="panel-header">
+                <div>
+                  <h3>Bulk Lead Import</h3>
+                  <p>Upload a CSV from Excel or Google Sheets, preview assignments, and import the batch without manual re-entry.</p>
+                </div>
+                <button class="button button-ghost" id="downloadLeadImportTemplateButton" type="button">Download CSV Template</button>
+              </div>
+              <div class="import-controls">
+                <label class="mini-card">
+                  Lead File
+                  <input id="leadImportFileInput" type="file" accept=".csv,.xlsx,.xls" />
+                </label>
+                <div class="mini-card import-status-card">
+                  <strong>${state.ui.importFileName || "No file selected"}</strong>
+                  <div class="subtle">${state.ui.importPreviewRows.length ? `${state.ui.importPreviewRows.filter((row) => !row.errors.length).length} ready · ${state.ui.importPreviewRows.filter((row) => row.errors.length).length} with errors` : "Upload a file to preview routing before import."}</div>
+                </div>
+                <div class="import-actions">
+                  <button class="button button-primary" id="importLeadsButton" type="button" ${state.ui.importPreviewRows.length && !state.ui.importPreviewRows.some((row) => row.errors.length) && !state.ui.importingCsv ? "" : "disabled"}>
+                    ${state.ui.importingCsv ? "Importing..." : "Import Leads"}
+                  </button>
+                  <button class="button button-ghost" id="clearLeadImportButton" type="button" ${state.ui.importPreviewRows.length ? "" : "disabled"}>Clear Preview</button>
+                </div>
+              </div>
+              ${state.ui.importPreviewRows.length ? `
+                <div class="table-wrap">
+                  <table class="settings-table import-preview-table">
+                    <thead>
+                      <tr>
+                        <th>Row</th>
+                        <th>Business Name</th>
+                        <th>Source</th>
+                        <th>Assigned Rep</th>
+                        <th>Routing Result</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${state.ui.importPreviewRows.map((row) => `
+                        <tr>
+                          <td>${row.rowNumber}</td>
+                          <td>${escapeHtml(row.data.businessName || "Missing business name")}</td>
+                          <td>${escapeHtml(row.data.leadSource || "Unknown")}</td>
+                          <td>${escapeHtml(row.assigneeName)}</td>
+                          <td>${escapeHtml(row.strategy || "Ready")}</td>
+                          <td>
+                            ${row.errors.length
+                              ? `<div class="import-error-list">${row.errors.map((item) => `<div>${escapeHtml(item)}</div>`).join("")}</div>`
+                              : '<span class="tag">Ready</span>'}
+                          </td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              ` : ""}
             </article>
             <article class="table-card">
               <div class="panel-header">
@@ -2055,8 +2398,9 @@ function renderRecoveryState() {
 }
 
 function renderOpportunityForm(row) {
+  const autoAssignLabel = state.setup.routingRules.autoAssignEnabled ? "Auto Assign" : "Keep with owner";
   const assigneeOptions = [
-    ...(isAdmin() ? [`<option value="auto" ${(!row.id && !row.assignedUserId) || row.assignedUserId === "auto" ? "selected" : ""}>Auto Assign</option>`] : []),
+    ...(isAdmin() ? [`<option value="auto" ${(!row.id && !row.assignedUserId) || row.assignedUserId === "auto" ? "selected" : ""}>${autoAssignLabel}</option>`] : []),
     ...(isAdmin() ? state.profiles.filter((item) => item.active) : [state.profile])
       .map((profile) => `<option value="${profile.id}" ${row.assignedUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`)
   ].join("");
@@ -3341,6 +3685,60 @@ function bindAppEvents() {
     });
   });
 
+  const downloadLeadImportTemplateButton = document.getElementById("downloadLeadImportTemplateButton");
+  if (downloadLeadImportTemplateButton) {
+    downloadLeadImportTemplateButton.addEventListener("click", () => {
+      try {
+        downloadLeadImportTemplate();
+      } catch (error) {
+        state.ui.error = error.message || "Could not download the import template.";
+        render();
+      }
+    });
+  }
+
+  const leadImportFileInput = document.getElementById("leadImportFileInput");
+  if (leadImportFileInput) {
+    leadImportFileInput.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        state.ui.error = "";
+        state.ui.notice = "";
+        state.ui.importFileName = file.name;
+        state.ui.importPreviewRows = await buildLeadImportPreview(file);
+        render();
+      } catch (error) {
+        state.ui.importFileName = "";
+        state.ui.importPreviewRows = [];
+        state.ui.error = error.message || "Could not preview that import file.";
+        render();
+      }
+    });
+  }
+
+  const clearLeadImportButton = document.getElementById("clearLeadImportButton");
+  if (clearLeadImportButton) {
+    clearLeadImportButton.addEventListener("click", () => {
+      state.ui.importPreviewRows = [];
+      state.ui.importFileName = "";
+      state.ui.notice = "";
+      render();
+    });
+  }
+
+  const importLeadsButton = document.getElementById("importLeadsButton");
+  if (importLeadsButton) {
+    importLeadsButton.addEventListener("click", async () => {
+      try {
+        await importLeadPreviewRows();
+      } catch (error) {
+        state.ui.error = error.message || "Could not import those leads.";
+        render();
+      }
+    });
+  }
+
   document.querySelectorAll("[data-carrier-name]").forEach((input) => {
     input.addEventListener("change", async (event) => {
       state.setup.carriers[Number(event.target.dataset.carrierName)].name = event.target.value;
@@ -3381,7 +3779,13 @@ async function saveOpportunity(formData) {
     .select("*")
     .single();
   if (error) throw error;
-  if (!existing && state.setup.routingRules.autoAssignEnabled && (!formData.assignedUserId || formData.assignedUserId === "auto")) {
+  if (
+    !existing &&
+    isAdmin() &&
+    state.setup.routingRules.autoAssignEnabled &&
+    (!formData.assignedUserId || formData.assignedUserId === "auto") &&
+    String(formData.leadSource || "").trim().toLowerCase() !== "self-generated"
+  ) {
     await advanceRoundRobinCursor(assignedProfile?.id);
   }
   await logOpportunityActivity({
