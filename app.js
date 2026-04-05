@@ -6,8 +6,10 @@ const APP_CONFIG = {
   appUrl: import.meta.env.VITE_APP_URL || ""
 };
 const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
-const APP_BUILD_ID = import.meta.env.VITE_APP_BUILD_ID || "v1";
+const APP_BUILD_ID = typeof __APP_BUILD_ID__ !== "undefined" ? __APP_BUILD_ID__ : "v1";
 const APP_BUILD_STORAGE_KEY = "golden-leaf-app-build-id";
+const APP_RECOVERY_STORAGE_KEY = "golden-leaf-app-recovery-build-id";
+const WORKSPACE_TIMEOUT_MS = 10000;
 
 const seedSettings = {
   assumptions: {
@@ -137,7 +139,7 @@ async function loadWorkspace() {
     state.ui.notice = "";
     render();
 
-    const profile = await fetchProfile(state.session.user.id);
+    const profile = await withTimeout(fetchProfile(state.session.user.id), WORKSPACE_TIMEOUT_MS);
     state.profile = profile;
 
     if (!profile.active) {
@@ -149,12 +151,12 @@ async function loadWorkspace() {
       return;
     }
 
-    const [settings, opportunities, coachingNotes, profiles] = await Promise.all([
+    const [settings, opportunities, coachingNotes, profiles] = await withTimeout(Promise.all([
       fetchSettings(),
       fetchOpportunities(),
       fetchCoachingNotes(),
       isAdmin() ? fetchProfiles() : Promise.resolve([profile])
-    ]);
+    ]), WORKSPACE_TIMEOUT_MS);
 
     state.setup = settings;
     state.opportunities = opportunities;
@@ -166,6 +168,10 @@ async function loadWorkspace() {
     render();
   } catch (error) {
     console.error(error);
+    const recovered = await attemptAutomaticRecovery(error);
+    if (recovered) {
+      return;
+    }
     state.ui.loading = false;
     state.ui.error = error.message || "Could not load the workspace.";
     state.ui.recoveringSession = true;
@@ -177,9 +183,6 @@ function handleBuildVersionChange() {
   const previousBuildId = localStorage.getItem(APP_BUILD_STORAGE_KEY);
   if (previousBuildId !== APP_BUILD_ID) {
     localStorage.setItem(APP_BUILD_STORAGE_KEY, APP_BUILD_ID);
-    state.ui.notice = previousBuildId
-      ? "The app was updated to a new version. Refreshing your local session state."
-      : state.ui.notice;
     state.ui.search = "";
     state.ui.repFilter = "All";
     state.ui.sourceFilter = "All";
@@ -190,6 +193,47 @@ function handleBuildVersionChange() {
     state.ui.bulkAssignUserId = "";
     state.ui.selectedOpportunityIds = [];
   }
+}
+
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error("Workspace request timed out.")), timeoutMs);
+    })
+  ]);
+}
+
+async function attemptAutomaticRecovery(error) {
+  if (!state.supabase || !state.session) {
+    return false;
+  }
+
+  const recoveryAlreadyAttempted = sessionStorage.getItem(APP_RECOVERY_STORAGE_KEY) === APP_BUILD_ID;
+  const message = String(error?.message || "");
+  const shouldRecover =
+    !recoveryAlreadyAttempted &&
+    (message.includes("JWT") ||
+      message.includes("refresh") ||
+      message.includes("session") ||
+      message.includes("timed out") ||
+      message.includes("Invalid") ||
+      message.includes("not found"));
+
+  if (!shouldRecover) {
+    return false;
+  }
+
+  sessionStorage.setItem(APP_RECOVERY_STORAGE_KEY, APP_BUILD_ID);
+  await state.supabase.auth.signOut({ scope: "local" });
+  state.session = null;
+  state.profile = null;
+  state.ui.loading = false;
+  state.ui.recoveringSession = false;
+  state.ui.error = "";
+  state.ui.notice = "We refreshed a stale session after the latest update. Please sign in again.";
+  render();
+  return true;
 }
 
 function isAdmin() {
@@ -2029,7 +2073,7 @@ async function resetLocalSession() {
   state.ui.activeOpportunityId = null;
   state.ui.bulkAssignUserId = "";
   state.ui.selectedOpportunityIds = [];
-  localStorage.removeItem(APP_BUILD_STORAGE_KEY);
+  sessionStorage.removeItem(APP_RECOVERY_STORAGE_KEY);
   if (state.supabase) {
     await state.supabase.auth.signOut({ scope: "local" });
   }
