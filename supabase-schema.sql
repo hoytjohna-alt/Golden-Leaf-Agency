@@ -14,6 +14,7 @@ create table if not exists public.app_settings (
   id uuid primary key default gen_random_uuid(),
   singleton_key text not null unique default 'default',
   assumptions jsonb not null default '{}'::jsonb,
+  routing_rules jsonb not null default '{}'::jsonb,
   lead_sources jsonb not null default '[]'::jsonb,
   statuses jsonb not null default '[]'::jsonb,
   products jsonb not null default '[]'::jsonb,
@@ -21,6 +22,8 @@ create table if not exists public.app_settings (
   updated_by uuid references public.profiles (id),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.app_settings add column if not exists routing_rules jsonb not null default '{}'::jsonb;
 
 create table if not exists public.opportunities (
   id uuid primary key default gen_random_uuid(),
@@ -140,6 +143,7 @@ for each row execute procedure public.handle_new_user();
 insert into public.app_settings (
   singleton_key,
   assumptions,
+  routing_rules,
   lead_sources,
   statuses,
   products,
@@ -157,6 +161,12 @@ values (
     "crmComplianceTargetPct": 0.95,
     "followUpDueWindowDays": 3,
     "freshLeadWindowDays": 3
+  }'::jsonb,
+  '{
+    "autoAssignEnabled": false,
+    "mode": "round_robin",
+    "roundRobinCursor": 0,
+    "sourceRules": []
   }'::jsonb,
   '["Purchased Leads","Warm Transfer","Referral","Website / Organic","Partner / Network","Recycled Lead","Self-Generated"]'::jsonb,
   '["New Lead","Attempted","Contacted","Qualified","Quoted","Pending Decision","Bound","Lost","Nurture / Recycle"]'::jsonb,

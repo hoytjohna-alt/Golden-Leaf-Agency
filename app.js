@@ -29,6 +29,12 @@ const seedSettings = {
     followUpDueWindowDays: 3,
     freshLeadWindowDays: 3
   },
+  routingRules: {
+    autoAssignEnabled: false,
+    mode: "round_robin",
+    roundRobinCursor: 0,
+    sourceRules: []
+  },
   leadSources: [
     "Purchased Leads",
     "Warm Transfer",
@@ -407,12 +413,17 @@ async function fetchProfiles() {
 async function fetchSettings() {
   const { data, error } = await state.supabase
     .from("app_settings")
-    .select("assumptions, lead_sources, statuses, products, carriers")
+    .select("assumptions, routing_rules, lead_sources, statuses, products, carriers")
     .eq("singleton_key", "default")
     .single();
   if (error) throw error;
   return {
     assumptions: { ...seedSettings.assumptions, ...(data.assumptions || {}) },
+    routingRules: {
+      ...seedSettings.routingRules,
+      ...(data.routing_rules || {}),
+      sourceRules: Array.isArray(data.routing_rules?.sourceRules) ? data.routing_rules.sourceRules : seedSettings.routingRules.sourceRules
+    },
     leadSources: data.lead_sources?.length ? data.lead_sources : seedSettings.leadSources,
     statuses: data.statuses?.length ? data.statuses : seedSettings.statuses,
     products: data.products?.length ? data.products : seedSettings.products,
@@ -745,6 +756,70 @@ function getVisibleManagedProfiles() {
   return state.profiles.filter((item) => item.active);
 }
 
+function getRepWorkloadRows(rows) {
+  return getAssignableProfiles()
+    .map((profile) => {
+      const repRows = rows.filter((row) => row.assignedUserId === profile.id && !row.closed);
+      return {
+        id: profile.id,
+        name: profile.full_name,
+        openLeads: repRows.length,
+        overdue: repRows.filter((row) => row.taskOverdue).length,
+        stale: repRows.filter((row) => row.daysOpen >= 7).length,
+        quoted: repRows.filter((row) => row.status === "Quoted").length,
+        renewalsDue: repRows.filter((row) => row.renewalNeedsAttention).length
+      };
+    })
+    .sort((a, b) => b.openLeads - a.openLeads);
+}
+
+function getRoutingSuggestions(workloadRows) {
+  if (workloadRows.length < 2) return [];
+  const busiest = workloadRows[0];
+  const lightest = workloadRows[workloadRows.length - 1];
+  const gap = busiest.openLeads - lightest.openLeads;
+  if (gap < 5) return [];
+  return [
+    `${busiest.name} has ${busiest.openLeads} open leads while ${lightest.name} has ${lightest.openLeads}. Consider rebalancing a few active accounts.`,
+    busiest.overdue > lightest.overdue
+      ? `${busiest.name} also carries more overdue tasks. Auto-assigning to ${lightest.name} could reduce follow-up risk.`
+      : `A round-robin or source-based rule would smooth out the current workload gap.`
+  ];
+}
+
+function getAssignedProfileForForm(formData, existingOpportunity = null) {
+  if (formData.assignedUserId && formData.assignedUserId !== "auto") {
+    return state.profiles.find((item) => item.id === formData.assignedUserId) || state.profile;
+  }
+  if (existingOpportunity?.assignedUserId) {
+    return state.profiles.find((item) => item.id === existingOpportunity.assignedUserId) || state.profile;
+  }
+  return resolveAutoAssignedProfile(formData) || state.profile;
+}
+
+function resolveAutoAssignedProfile(formData) {
+  const activeReps = getAssignableProfiles();
+  if (!activeReps.length) return null;
+
+  const { autoAssignEnabled, mode, sourceRules = [], roundRobinCursor = 0 } = state.setup.routingRules || seedSettings.routingRules;
+  if (!autoAssignEnabled) {
+    return isAdmin() ? activeReps[0] : state.profile;
+  }
+
+  if (mode === "source_rule") {
+    const matchedRule = sourceRules.find((rule) => rule.source === formData.leadSource && rule.userId);
+    if (matchedRule) {
+      const matchedProfile = activeReps.find((item) => item.id === matchedRule.userId);
+      if (matchedProfile) {
+        return matchedProfile;
+      }
+    }
+  }
+
+  const normalizedCursor = Number(roundRobinCursor || 0) % activeReps.length;
+  return activeReps[normalizedCursor];
+}
+
 function getRemovedProfiles() {
   return state.profiles.filter((item) => !item.active);
 }
@@ -810,6 +885,7 @@ function getAvailableTabs() {
 function getSetupTabs() {
   return [
     { id: "users", label: "Users" },
+    { id: "routing", label: "Routing" },
     { id: "assumptions", label: "Assumptions" },
     { id: "carriers", label: "Carrier Table" }
   ];
@@ -1136,6 +1212,8 @@ function render() {
   const assignableProfiles = getAssignableProfiles();
   const visibleManagedProfiles = getVisibleManagedProfiles();
   const removedProfiles = getRemovedProfiles();
+  const workloadRows = isAdmin() ? getRepWorkloadRows(allRows) : [];
+  const routingSuggestions = isAdmin() ? getRoutingSuggestions(workloadRows) : [];
   const opportunityView = getOpportunityView();
   const pipelineGroups = getPipelineGroups(listRows);
   const pipelinePhaseGroups = getPipelinePhaseGroups(listRows);
@@ -1691,6 +1769,97 @@ function render() {
           </article>
         ` : ""}
 
+        ${state.ui.setupTab === "routing" ? `
+          <div class="section-stack">
+            <article class="table-card">
+              <div class="panel-header">
+                <div>
+                  <h3>Assignment Automation</h3>
+                  <p>Control whether new leads route automatically and how the app picks the assignee.</p>
+                </div>
+              </div>
+              <div class="two-column">
+                <label class="mini-card">
+                  Auto Assign New Leads
+                  <select id="routingAutoAssignSelect">
+                    <option value="false" ${!state.setup.routingRules.autoAssignEnabled ? "selected" : ""}>Manual selection</option>
+                    <option value="true" ${state.setup.routingRules.autoAssignEnabled ? "selected" : ""}>Enabled</option>
+                  </select>
+                </label>
+                <label class="mini-card">
+                  Routing Mode
+                  <select id="routingModeSelect">
+                    <option value="round_robin" ${state.setup.routingRules.mode === "round_robin" ? "selected" : ""}>Round robin</option>
+                    <option value="source_rule" ${state.setup.routingRules.mode === "source_rule" ? "selected" : ""}>Source based</option>
+                  </select>
+                </label>
+              </div>
+              <p class="notice">When admin chooses <code>Auto Assign</code> on a new lead, the app will apply the selected rule.</p>
+            </article>
+            <article class="table-card">
+              <div class="panel-header">
+                <div>
+                  <h3>Lead Source Routing</h3>
+                  <p>Optionally pin certain sources to specific reps before round robin is used.</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="settings-table">
+                  <thead>
+                    <tr>
+                      <th>Lead Source</th>
+                      <th>Assigned Rep</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${state.setup.leadSources.map((source) => {
+                      const rule = state.setup.routingRules.sourceRules.find((item) => item.source === source);
+                      return `
+                        <tr>
+                          <td>${escapeHtml(source)}</td>
+                          <td>
+                            <select data-routing-source="${escapeHtml(source)}">
+                              <option value="">Use default rule</option>
+                              ${assignableProfiles.map((profile) => `<option value="${profile.id}" ${rule?.userId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}
+                            </select>
+                          </td>
+                        </tr>
+                      `;
+                    }).join("")}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <article class="table-card">
+              <div class="panel-header">
+                <div>
+                  <h3>Rep Workload</h3>
+                  <p>See open-load distribution before you rebalance or change routing rules.</p>
+                </div>
+              </div>
+              <div class="workload-grid">
+                ${workloadRows.map((row) => `
+                  <article class="mini-card workload-card">
+                    <strong>${escapeHtml(row.name)}</strong>
+                    <div class="workload-metrics">
+                      <span>${row.openLeads} open</span>
+                      <span>${row.overdue} overdue</span>
+                      <span>${row.stale} stale</span>
+                      <span>${row.quoted} quoted</span>
+                      <span>${row.renewalsDue} renewals due</span>
+                    </div>
+                  </article>
+                `).join("")}
+              </div>
+              ${routingSuggestions.length ? `
+                <div class="routing-hints">
+                  ${routingSuggestions.map((tip) => `<p class="mini-note">${escapeHtml(tip)}</p>`).join("")}
+                </div>
+              ` : `<p class="mini-note">Workload is reasonably balanced right now.</p>`}
+            </article>
+          </div>
+        ` : ""}
+
         ${state.ui.setupTab === "assumptions" ? `
           <article class="table-card">
             <div class="panel-header">
@@ -1886,9 +2055,11 @@ function renderRecoveryState() {
 }
 
 function renderOpportunityForm(row) {
-  const assigneeOptions = (isAdmin() ? state.profiles.filter((item) => item.active) : [state.profile])
-    .map((profile) => `<option value="${profile.id}" ${row.assignedUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`)
-    .join("");
+  const assigneeOptions = [
+    ...(isAdmin() ? [`<option value="auto" ${(!row.id && !row.assignedUserId) || row.assignedUserId === "auto" ? "selected" : ""}>Auto Assign</option>`] : []),
+    ...(isAdmin() ? state.profiles.filter((item) => item.active) : [state.profile])
+      .map((profile) => `<option value="${profile.id}" ${row.assignedUserId === profile.id ? "selected" : ""}>${escapeHtml(profile.full_name)}</option>`)
+  ].join("");
 
   return `
     <form id="opportunityForm">
@@ -2600,7 +2771,7 @@ function blankOpportunity() {
   return {
     id: "",
     leadNumber: "",
-    assignedUserId: state.profile?.id || "",
+    assignedUserId: isAdmin() ? "auto" : state.profile?.id || "",
     assignedRepName: state.profile?.full_name || "",
     dateReceived: todayIso(),
     leadSource: state.setup.leadSources[0] || "",
@@ -3142,6 +3313,34 @@ function bindAppEvents() {
     });
   }
 
+  const routingAutoAssignSelect = document.getElementById("routingAutoAssignSelect");
+  if (routingAutoAssignSelect) {
+    routingAutoAssignSelect.addEventListener("change", async (event) => {
+      state.setup.routingRules.autoAssignEnabled = event.target.value === "true";
+      await persistSettings();
+    });
+  }
+
+  const routingModeSelect = document.getElementById("routingModeSelect");
+  if (routingModeSelect) {
+    routingModeSelect.addEventListener("change", async (event) => {
+      state.setup.routingRules.mode = event.target.value;
+      await persistSettings();
+    });
+  }
+
+  document.querySelectorAll("[data-routing-source]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      const source = event.target.dataset.routingSource;
+      const userId = event.target.value;
+      const otherRules = state.setup.routingRules.sourceRules.filter((rule) => rule.source !== source);
+      state.setup.routingRules.sourceRules = userId
+        ? [...otherRules, { source, userId }]
+        : otherRules;
+      await persistSettings();
+    });
+  });
+
   document.querySelectorAll("[data-carrier-name]").forEach((input) => {
     input.addEventListener("change", async (event) => {
       state.setup.carriers[Number(event.target.dataset.carrierName)].name = event.target.value;
@@ -3170,19 +3369,27 @@ function handleDragAutoScroll(event) {
 
 async function saveOpportunity(formData) {
   const existing = state.opportunities.find((item) => item.id === formData.id);
-  const payload = mapOpportunityToDb(formData);
+  const assignedProfile = getAssignedProfileForForm(formData, existing);
+  const normalizedFormData = {
+    ...formData,
+    assignedUserId: assignedProfile?.id || formData.assignedUserId
+  };
+  const payload = mapOpportunityToDb(normalizedFormData);
   const { data, error } = await state.supabase
     .from("opportunities")
     .upsert(payload)
     .select("*")
     .single();
   if (error) throw error;
+  if (!existing && state.setup.routingRules.autoAssignEnabled && (!formData.assignedUserId || formData.assignedUserId === "auto")) {
+    await advanceRoundRobinCursor(assignedProfile?.id);
+  }
   await logOpportunityActivity({
     opportunityId: data.id,
     title: existing ? "Lead workspace updated" : "Lead created",
     detail: existing
       ? buildOpportunityChangeSummary(existing, mapOpportunityFromDb(data))
-      : `${data.business_name || "Lead"} entered the pipeline in ${data.status}.`
+      : `${data.business_name || "Lead"} entered the pipeline in ${data.status}${assignedProfile ? ` and was assigned to ${assignedProfile.full_name}` : ""}.`
   });
   state.ui.activeOpportunityId = data.id;
   state.ui.opportunityTab = existing ? "update" : "stage";
@@ -3402,6 +3609,7 @@ async function persistSettings() {
     const { error } = await state.supabase.from("app_settings").upsert({
       singleton_key: "default",
       assumptions: state.setup.assumptions,
+      routing_rules: state.setup.routingRules,
       lead_sources: state.setup.leadSources,
       statuses: state.setup.statuses,
       products: state.setup.products,
@@ -3414,6 +3622,20 @@ async function persistSettings() {
     state.ui.error = error.message || "Could not save setup settings.";
     render();
   }
+}
+
+async function advanceRoundRobinCursor(assignedProfileId) {
+  const activeReps = getAssignableProfiles();
+  if (!assignedProfileId || activeReps.length <= 1) return;
+  const assignedIndex = activeReps.findIndex((item) => item.id === assignedProfileId);
+  if (assignedIndex < 0) return;
+  state.setup.routingRules.roundRobinCursor = (assignedIndex + 1) % activeReps.length;
+  const { error } = await state.supabase.from("app_settings").upsert({
+    singleton_key: "default",
+    routing_rules: state.setup.routingRules,
+    updated_by: state.profile.id
+  });
+  if (error) throw error;
 }
 
 async function persistProfile(profileId, changes) {
