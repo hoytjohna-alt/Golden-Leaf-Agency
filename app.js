@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import * as XLSX from "xlsx";
 
 const APP_CONFIG = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || "",
@@ -83,7 +84,8 @@ const state = {
     activeTab: "dashboard",
     bulkAssignUserId: "",
     selectedOpportunityIds: [],
-    opportunityView: "board"
+    opportunityView: "board",
+    carrierEditing: false
   }
 };
 
@@ -577,6 +579,8 @@ function summarize(rows) {
     boundPremium: sum(rows, "premiumBound"),
     pipelineAgencyComm: sum(rows, "potentialAgencyComm"),
     actualAgencyComm: sum(rows, "actualAgencyComm"),
+    actualRepPayout: sum(rows, "actualRepPayout"),
+    potentialRepPayout: sum(rows, "potentialRepPayout"),
     ownerNetAgencyComm: sum(rows, "ownerNetAgencyComm")
   };
 }
@@ -600,7 +604,8 @@ function getRepScorecards(rows) {
       contactRate: leads ? repRows.filter((row) => row.contacted).length / leads : 0,
       quoteRate: leads ? quotes / leads : 0,
       quoteToBindRate: quotes ? repRows.filter((row) => row.bound).length / quotes : 0,
-      actualAgencyComm: sum(repRows, "actualAgencyComm")
+      actualAgencyComm: sum(repRows, "actualAgencyComm"),
+      actualRepPayout: sum(repRows, "actualRepPayout")
     };
   });
 }
@@ -616,9 +621,70 @@ function getRoiRows(rows) {
       spend: sum(sourceRows, "leadCost"),
       quoteRate: count ? quotes / count : 0,
       bindRate: count ? sourceRows.filter((row) => row.bound).length / count : 0,
-      actualAgencyComm: sum(sourceRows, "actualAgencyComm")
+      actualAgencyComm: sum(sourceRows, "actualAgencyComm"),
+      actualRepPayout: sum(sourceRows, "actualRepPayout")
     };
   });
+}
+
+function getStageCounts(rows) {
+  return state.setup.statuses.map((status) => ({
+    label: status,
+    value: rows.filter((row) => row.status === status).length
+  }));
+}
+
+function getRepCommissionRows(rows) {
+  return rows
+    .filter((row) => row.actualRepPayout > 0 || row.potentialRepPayout > 0)
+    .map((row) => ({
+      businessName: row.businessName,
+      status: row.status,
+      carrier: row.carrier,
+      policyType: row.policyType,
+      actualRepPayout: row.actualRepPayout,
+      potentialRepPayout: row.potentialRepPayout
+    }));
+}
+
+function getMonthlyTrendRows(rows, key, monthsBack = 6) {
+  const months = [];
+  const now = parseDate(todayIso()) || new Date();
+  for (let index = monthsBack - 1; index >= 0; index -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    months.push({
+      label: date.toLocaleString("en-US", { month: "short" }),
+      value: sum(rows.filter((row) => row.month === monthKey), key)
+    });
+  }
+  return months;
+}
+
+function getRepLeaderboardRows(rows) {
+  return getRepScorecards(rows)
+    .filter((row) => row.leads > 0)
+    .sort((a, b) => b.actualAgencyComm - a.actualAgencyComm)
+    .slice(0, 6)
+    .map((row) => ({
+      label: row.name,
+      value: row.actualAgencyComm
+    }));
+}
+
+function getRepSourceRows(rows) {
+  return getRoiRows(rows)
+    .filter((row) => row.count > 0)
+    .map((row) => ({
+      label: row.source,
+      value: row.actualRepPayout
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+}
+
+function getUserScopedRows(rows) {
+  return isAdmin() ? rows : rows.filter((row) => row.assignedUserId === state.profile?.id);
 }
 
 function getCoachingRows(rows) {
@@ -712,9 +778,16 @@ function render() {
   const pipelineGroups = getPipelineGroups(listRows);
   const pipelinePhaseGroups = getPipelinePhaseGroups(listRows);
   const summary = summarize(timeframeRows);
+  const userSummary = summarize(getUserScopedRows(timeframeRows));
   const scorecards = getRepScorecards(timeframeRows);
-  const roiRows = getRoiRows(timeframeRows);
+  const roiRows = getRoiRows(getUserScopedRows(timeframeRows));
   const coachingRows = getCoachingRows(allRows);
+  const dashboardStageRows = getStageCounts(getUserScopedRows(timeframeRows));
+  const monthlyAgencyTrendRows = getMonthlyTrendRows(timeframeRows, "actualAgencyComm");
+  const monthlyRepTrendRows = getMonthlyTrendRows(getUserScopedRows(timeframeRows), "actualRepPayout");
+  const leaderboardRows = getRepLeaderboardRows(timeframeRows);
+  const repSourceRows = getRepSourceRows(getUserScopedRows(timeframeRows));
+  const repCommissionRows = getRepCommissionRows(getUserScopedRows(timeframeRows));
   const activeOpportunity =
     state.opportunities.find((item) => item.id === state.ui.activeOpportunityId) ||
     blankOpportunity();
@@ -740,17 +813,73 @@ function render() {
         </label>
       </div>
       <div class="dashboard-grid">
-        ${statCard("Total Leads", summary.totalLeads, "In selected timeframe")}
-        ${statCard("Open Leads", summary.openLeads, "Still active")}
-        ${statCard("Overdue Follow-Up", summary.overdueFollowUp, "Needs attention")}
-        ${statCard("Quotes in Pipeline", summary.quotesInPipeline, "Not yet closed")}
-        ${statCard("Binds", summary.binds, "Closed won")}
+        ${statCard("Total Leads", isAdmin() ? summary.totalLeads : userSummary.totalLeads, "In selected timeframe")}
+        ${statCard("Open Leads", isAdmin() ? summary.openLeads : userSummary.openLeads, "Still active")}
+        ${statCard("Overdue Follow-Up", isAdmin() ? summary.overdueFollowUp : userSummary.overdueFollowUp, "Needs attention")}
+        ${statCard("Quotes in Pipeline", isAdmin() ? summary.quotesInPipeline : userSummary.quotesInPipeline, "Not yet closed")}
+        ${statCard("Binds", isAdmin() ? summary.binds : userSummary.binds, "Closed won")}
       </div>
       <div class="metrics-grid">
-        ${kpiCard("Bound Premium", formatCurrency(summary.boundPremium), "Actual premium")}
-        ${kpiCard("Pipeline Agency Comm", formatCurrency(summary.pipelineAgencyComm), "Projected commission")}
-        ${kpiCard("Actual Agency Comm", formatCurrency(summary.actualAgencyComm), "Closed won revenue")}
-        ${kpiCard("Owner Net Agency Comm", formatCurrency(summary.ownerNetAgencyComm), "After rep payout")}
+        ${isAdmin()
+          ? `
+            ${kpiCard("Bound Premium", formatCurrency(summary.boundPremium), "Actual premium")}
+            ${kpiCard("Pipeline Agency Comm", formatCurrency(summary.pipelineAgencyComm), "Projected commission")}
+            ${kpiCard("Actual Agency Comm", formatCurrency(summary.actualAgencyComm), "Closed won revenue")}
+            ${kpiCard("Owner Net Agency Comm", formatCurrency(summary.ownerNetAgencyComm), "After rep payout")}
+          `
+          : `
+            ${kpiCard("Bound Premium", formatCurrency(userSummary.boundPremium), "Your closed premium")}
+            ${kpiCard("Projected Commission", formatCurrency(userSummary.potentialRepPayout), "Open quoted payout")}
+            ${kpiCard("Earned Commission", formatCurrency(userSummary.actualRepPayout), "Your take-home on bound business")}
+            ${kpiCard("Follow-Ups Due", userSummary.overdueFollowUp, "Leads needing action")}
+          `}
+      </div>
+      <div class="two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Pipeline by Stage" : "My Pipeline by Stage"}</h3>
+              <p>${isAdmin() ? "Quick visual of where the agency book is sitting." : "Your current workload across the lead cycle."}</p>
+            </div>
+          </div>
+          ${renderBarChart(dashboardStageRows, { valueFormatter: formatWholeNumber })}
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Trend Snapshot" : "Commission Trend"}</h3>
+              <p>${isAdmin() ? "Recent closed agency commission by month." : "Recent earned payout by month."}</p>
+            </div>
+          </div>
+          ${renderBarChart(isAdmin() ? monthlyAgencyTrendRows : monthlyRepTrendRows, { valueFormatter: formatCompactCurrency })}
+        </article>
+      </div>
+      <div class="two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Top Producers" : "Commission by Lead Source"}</h3>
+              <p>${isAdmin() ? "Largest agency revenue contributors in the selected timeframe." : "Where your payout is coming from."}</p>
+            </div>
+          </div>
+          ${renderBarChart(isAdmin() ? leaderboardRows : repSourceRows, { valueFormatter: formatCompactCurrency })}
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Admin Actions" : "My Commission Detail"}</h3>
+              <p>${isAdmin() ? "Quick exports and finance controls for the owner workspace." : "Open and closed commission items in your book."}</p>
+            </div>
+          </div>
+          ${isAdmin()
+            ? `
+              <div class="action-stack">
+                <button class="button button-primary" id="exportWorkbookButton" type="button">Export Workbook</button>
+                <p class="mini-note">Downloads a multi-sheet workbook aligned to the original spreadsheet tabs.</p>
+              </div>
+            `
+            : renderCommissionList(repCommissionRows)}
+        </article>
       </div>
     </section>
     ` : ""}
@@ -872,20 +1001,20 @@ function render() {
           <p>${isAdmin() ? "Full rollup by rep and lead source." : "Your personal performance against the same tracked metrics."}</p>
         </div>
       </div>
-      <div class="two-column">
+        <div class="two-column">
         <div class="table-card">
-          <div class="panel-header"><h3>Rep Scorecards</h3></div>
+          <div class="panel-header"><h3>${isAdmin() ? "Rep Scorecards" : "My Production Scorecard"}</h3></div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Rep</th>
+                  <th>${isAdmin() ? "Rep" : "Producer"}</th>
                   <th>Leads</th>
                   <th>Same Day</th>
                   <th>Contact</th>
                   <th>Quote</th>
                   <th>Q-B</th>
-                  <th>Actual Comm</th>
+                  <th>${isAdmin() ? "Agency Comm" : "My Comm"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -897,7 +1026,7 @@ function render() {
                     <td>${formatPct(row.contactRate)}</td>
                     <td>${formatPct(row.quoteRate)}</td>
                     <td>${formatPct(row.quoteToBindRate)}</td>
-                    <td>${formatCurrency(row.actualAgencyComm)}</td>
+                    <td>${formatCurrency(isAdmin() ? row.actualAgencyComm : row.actualRepPayout)}</td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -905,17 +1034,17 @@ function render() {
           </div>
         </div>
         <div class="table-card">
-          <div class="panel-header"><h3>Lead Source ROI</h3></div>
+          <div class="panel-header"><h3>${isAdmin() ? "Lead Source ROI" : "My Lead Source Mix"}</h3></div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Lead Source</th>
                   <th>Count</th>
-                  <th>Spend</th>
+                  ${isAdmin() ? "<th>Spend</th>" : ""}
                   <th>Quote Rate</th>
                   <th>Bind Rate</th>
-                  <th>Actual Comm</th>
+                  <th>${isAdmin() ? "Actual Comm" : "My Comm"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -923,10 +1052,10 @@ function render() {
                   <tr>
                     <td>${escapeHtml(row.source)}</td>
                     <td>${row.count}</td>
-                    <td>${formatCurrency(row.spend)}</td>
+                    ${isAdmin() ? `<td>${formatCurrency(row.spend)}</td>` : ""}
                     <td>${formatPct(row.quoteRate)}</td>
                     <td>${formatPct(row.bindRate)}</td>
-                    <td>${formatCurrency(row.actualAgencyComm)}</td>
+                    <td>${formatCurrency(isAdmin() ? row.actualAgencyComm : row.actualRepPayout)}</td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -1087,7 +1216,15 @@ function render() {
             ` : ""}
           </article>
           <article class="table-card">
-            <div class="panel-header"><h3>Carrier Commission Table</h3></div>
+            <div class="panel-header">
+              <div>
+                <h3>Carrier Commission Table</h3>
+                <p>Locked by default so the commission model is not changed accidentally.</p>
+              </div>
+              <button class="button ${state.ui.carrierEditing ? "button-secondary" : "button-ghost"}" id="toggleCarrierEditingButton" type="button">
+                ${state.ui.carrierEditing ? "Done Editing" : "Edit Table"}
+              </button>
+            </div>
             <div class="table-wrap">
               <table class="settings-table">
                 <thead>
@@ -1100,9 +1237,9 @@ function render() {
                 <tbody>
                   ${state.setup.carriers.map((carrier, index) => `
                     <tr>
-                      <td><input data-carrier-name="${index}" value="${escapeHtml(carrier.name)}" /></td>
-                      <td><input data-carrier-new="${index}" type="number" step="0.01" value="${Number(carrier.newPct || 0)}" /></td>
-                      <td><input data-carrier-renewal="${index}" type="number" step="0.01" value="${Number(carrier.renewalPct || 0)}" /></td>
+                      <td><input data-carrier-name="${index}" value="${escapeHtml(carrier.name)}" ${state.ui.carrierEditing ? "" : "disabled"} /></td>
+                      <td><input data-carrier-new="${index}" type="number" step="0.01" value="${Number(carrier.newPct || 0)}" ${state.ui.carrierEditing ? "" : "disabled"} /></td>
+                      <td><input data-carrier-renewal="${index}" type="number" step="0.01" value="${Number(carrier.renewalPct || 0)}" ${state.ui.carrierEditing ? "" : "disabled"} /></td>
                     </tr>
                   `).join("")}
                 </tbody>
@@ -1458,6 +1595,49 @@ function kpiCard(title, value, meta) {
   return `<article class="kpi-card"><h3>${escapeHtml(title)}</h3><span class="kpi-value">${escapeHtml(value)}</span><div class="stat-meta">${escapeHtml(meta)}</div></article>`;
 }
 
+function renderBarChart(rows, { valueFormatter = formatWholeNumber } = {}) {
+  const populatedRows = rows.filter((row) => Number(row.value || 0) > 0);
+  if (!populatedRows.length) {
+    return `<div class="empty-state"><h3>No chart data yet</h3><p>As activity comes in, this section will visualize it automatically.</p></div>`;
+  }
+  const maxValue = Math.max(...populatedRows.map((row) => Number(row.value || 0)), 1);
+  return `
+    <div class="bar-list">
+      ${populatedRows.map((row) => `
+        <div class="bar-row">
+          <strong>${escapeHtml(row.label)}</strong>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${Math.max(8, (Number(row.value || 0) / maxValue) * 100).toFixed(1)}%"></div>
+          </div>
+          <span>${escapeHtml(valueFormatter(row.value))}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCommissionList(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state"><h3>No earned commission yet</h3><p>Once quotes bind, your commission detail will show up here.</p></div>`;
+  }
+  return `
+    <div class="commission-list">
+      ${rows.slice(0, 6).map((row) => `
+        <article class="commission-card">
+          <div>
+            <strong>${escapeHtml(row.businessName)}</strong>
+            <div class="subtle">${escapeHtml(row.carrier)} · ${escapeHtml(row.status)}</div>
+          </div>
+          <div class="commission-values">
+            <span>Earned ${formatCurrency(row.actualRepPayout)}</span>
+            <span>Projected ${formatCurrency(row.potentialRepPayout)}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function humanize(value) {
   return value.replace(/Pct/g, " %").replace(/Days/g, " Days").replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
 }
@@ -1479,6 +1659,21 @@ function formatCurrency(value) {
 
 function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function formatWholeNumber(value) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0
+  }).format(Number(value || 0));
+}
+
+function formatCompactCurrency(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1
+  }).format(Number(value || 0));
 }
 
 function escapeHtml(value) {
@@ -1933,6 +2128,30 @@ function bindAppEvents() {
     });
   }
 
+  const toggleCarrierEditingButton = document.getElementById("toggleCarrierEditingButton");
+  if (toggleCarrierEditingButton) {
+    toggleCarrierEditingButton.addEventListener("click", () => {
+      state.ui.carrierEditing = !state.ui.carrierEditing;
+      state.ui.notice = state.ui.carrierEditing
+        ? "Carrier commission table unlocked for editing."
+        : "Carrier commission table locked.";
+      state.ui.error = "";
+      render();
+    });
+  }
+
+  const exportWorkbookButton = document.getElementById("exportWorkbookButton");
+  if (exportWorkbookButton) {
+    exportWorkbookButton.addEventListener("click", () => {
+      try {
+        exportAgencyWorkbook();
+      } catch (error) {
+        state.ui.error = error.message || "Could not export the workbook.";
+        render();
+      }
+    });
+  }
+
   document.querySelectorAll("[data-carrier-name]").forEach((input) => {
     input.addEventListener("change", async (event) => {
       state.setup.carriers[Number(event.target.dataset.carrierName)].name = event.target.value;
@@ -2138,6 +2357,167 @@ async function sendRepInvite({ email, fullName }) {
 
   state.ui.error = "";
   state.ui.notice = `Invite sent to ${email}. They should confirm using the link that points to ${redirectUrl}.`;
+  render();
+}
+
+function exportAgencyWorkbook() {
+  const allRows = getVisibleOpportunities();
+  const allTimeSummary = summarize(allRows);
+  const allTimeScorecards = getRepScorecards(allRows);
+  const allTimeRoiRows = getRoiRows(allRows);
+  const allTimeCoachingRows = getCoachingRows(allRows);
+
+  const workbook = XLSX.utils.book_new();
+  workbook.Props = {
+    Title: "Golden Leaf Agency Workbook",
+    Subject: "Agency operating workbook export",
+    Author: "Golden Leaf Agency HQ"
+  };
+
+  const instructionsSheet = XLSX.utils.aoa_to_sheet([
+    ["Golden Leaf Agency Workbook Export"],
+    ["Generated", new Date().toLocaleString("en-US")],
+    [""],
+    ["Tabs included in this export mirror the original workbook structure."],
+    ["Instructions"],
+    ["Setup"],
+    ["Opportunity Log"],
+    ["Rep Scorecard"],
+    ["Agency Dashboard"],
+    ["Lead Source ROI"],
+    ["Weekly Coaching"],
+    ["Checklists"]
+  ]);
+
+  const setupSheet = XLSX.utils.aoa_to_sheet([
+    ["Setup"],
+    [""],
+    ["Assumptions"],
+    ["Setting", "Value"],
+    ...Object.entries(state.setup.assumptions).map(([key, value]) => [humanize(key), value]),
+    [""],
+    ["Lead Sources"],
+    ["Source"],
+    ...state.setup.leadSources.map((value) => [value]),
+    [""],
+    ["Statuses"],
+    ["Status"],
+    ...state.setup.statuses.map((value) => [value]),
+    [""],
+    ["Products"],
+    ["Product"],
+    ...state.setup.products.map((value) => [value]),
+    [""],
+    ["Carrier Commission Table"],
+    ["Carrier", "New %", "Renewal %", "Notes"],
+    ...state.setup.carriers.map((carrier) => [carrier.name, carrier.newPct, carrier.renewalPct, carrier.notes || ""])
+  ]);
+
+  const opportunityRows = allRows.map((row) => ({
+    "Lead #": row.leadNumber,
+    "Date Received": row.dateReceived,
+    "Assigned Rep": row.assignedRepName,
+    "Lead Source": row.leadSource,
+    "Business Name": row.businessName,
+    "Target Niche": row.targetNiche,
+    "Product Focus": row.productFocus,
+    Carrier: row.carrier,
+    "Policy Type": row.policyType,
+    Status: row.status,
+    "Lead Cost": row.leadCost,
+    "Premium Quoted": row.premiumQuoted,
+    "Premium Bound": row.premiumBound,
+    "Agency Comm %": row.agencyCommPct,
+    "Projected Agency Comm": row.potentialAgencyComm,
+    "Actual Agency Comm": row.actualAgencyComm,
+    "Rep Payout %": row.repPayoutPct,
+    "Projected Rep Payout": row.potentialRepPayout,
+    "Actual Rep Payout": row.actualRepPayout,
+    "Owner Net Agency Comm": row.ownerNetAgencyComm,
+    "First Attempt Date": row.firstAttemptDate,
+    "Last Activity Date": row.lastActivityDate,
+    "Next Follow-Up Date": row.nextFollowUpDate,
+    Notes: row.notes
+  }));
+  const opportunitySheet = XLSX.utils.json_to_sheet(opportunityRows);
+
+  const scorecardSheet = XLSX.utils.json_to_sheet(allTimeScorecards.map((row) => ({
+    Rep: row.name,
+    Leads: row.leads,
+    Binds: row.binds,
+    "Same Day Rate": row.sameDayRate,
+    "Contact Rate": row.contactRate,
+    "Quote Rate": row.quoteRate,
+    "Quote to Bind Rate": row.quoteToBindRate,
+    "Actual Agency Comm": row.actualAgencyComm,
+    "Actual Rep Payout": row.actualRepPayout
+  })));
+
+  const dashboardSheet = XLSX.utils.aoa_to_sheet([
+    ["Agency Dashboard"],
+    ["Metric", "Value"],
+    ["Total Leads", allTimeSummary.totalLeads],
+    ["Open Leads", allTimeSummary.openLeads],
+    ["Overdue Follow-Up", allTimeSummary.overdueFollowUp],
+    ["Quotes in Pipeline", allTimeSummary.quotesInPipeline],
+    ["Binds", allTimeSummary.binds],
+    ["Bound Premium", allTimeSummary.boundPremium],
+    ["Pipeline Agency Comm", allTimeSummary.pipelineAgencyComm],
+    ["Actual Agency Comm", allTimeSummary.actualAgencyComm],
+    ["Actual Rep Payout", allTimeSummary.actualRepPayout],
+    ["Owner Net Agency Comm", allTimeSummary.ownerNetAgencyComm]
+  ]);
+
+  const roiSheet = XLSX.utils.json_to_sheet(allTimeRoiRows.map((row) => ({
+    "Lead Source": row.source,
+    Count: row.count,
+    Spend: row.spend,
+    "Quote Rate": row.quoteRate,
+    "Bind Rate": row.bindRate,
+    "Actual Agency Comm": row.actualAgencyComm,
+    "Actual Rep Payout": row.actualRepPayout
+  })));
+
+  const coachingSheet = XLSX.utils.json_to_sheet(allTimeCoachingRows.map((row) => ({
+    "Week Start": row.weekStart,
+    Rep: row.repName,
+    Leads: row.leads,
+    "Contact Rate": row.contactRate,
+    Quotes: row.quotes,
+    Binds: row.binds,
+    "Biggest Gap": row.biggestGap,
+    "Behavior to Improve": row.behaviorToImprove,
+    "Action Commitment": row.actionCommitment,
+    "Next Review Notes": row.nextReviewNotes
+  })));
+
+  const checklistSheet = XLSX.utils.aoa_to_sheet([
+    ["Checklists"],
+    ["Daily Rep Priorities"],
+    ["Work fresh leads same day"],
+    ["Log first attempt and follow-up date"],
+    ["Advance lead to the correct stage"],
+    ["Update notes after every conversation"],
+    [""],
+    ["Admin Priorities"],
+    ["Review overdue follow-ups"],
+    ["Reassign orphaned leads"],
+    ["Review rep scorecards and coaching"],
+    ["Export workbook for archive or handoff"]
+  ]);
+
+  XLSX.utils.book_append_sheet(workbook, instructionsSheet, "Instructions");
+  XLSX.utils.book_append_sheet(workbook, setupSheet, "Setup");
+  XLSX.utils.book_append_sheet(workbook, opportunitySheet, "Opportunity Log");
+  XLSX.utils.book_append_sheet(workbook, scorecardSheet, "Rep Scorecard");
+  XLSX.utils.book_append_sheet(workbook, dashboardSheet, "Agency Dashboard");
+  XLSX.utils.book_append_sheet(workbook, roiSheet, "Lead Source ROI");
+  XLSX.utils.book_append_sheet(workbook, coachingSheet, "Weekly Coaching");
+  XLSX.utils.book_append_sheet(workbook, checklistSheet, "Checklists");
+
+  XLSX.writeFile(workbook, `Golden-Leaf-Agency-Workbook-${todayIso()}.xlsx`);
+  state.ui.notice = "Workbook exported.";
+  state.ui.error = "";
   render();
 }
 

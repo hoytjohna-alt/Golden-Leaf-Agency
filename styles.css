@@ -387,6 +387,12 @@ main {
   flex-wrap: wrap;
 }
 
+.action-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
 .toolbar-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -578,6 +584,28 @@ main {
   border-color: rgba(39, 93, 70, 0.12);
 }
 
+.commission-list {
+  display: grid;
+  gap: 12px;
+}
+
+.commission-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff, #f8f6ef);
+  border: 1px solid rgba(24, 48, 40, 0.08);
+}
+
+.commission-values {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 input,
 select,
 textarea {
@@ -588,6 +616,14 @@ textarea {
   background: #fff;
   font: inherit;
   color: var(--ink);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: #f2f1ec;
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 textarea {
