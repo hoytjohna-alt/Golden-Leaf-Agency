@@ -102,6 +102,7 @@ const state = {
 let versionCheckTimer = null;
 let dragAutoScrollVelocity = 0;
 let dragAutoScrollFrame = null;
+let workspaceLoadPromise = null;
 
 const appEl = document.getElementById("app");
 const heroActionsEl = document.getElementById("heroActions");
@@ -128,12 +129,15 @@ async function init() {
     }
   });
 
-  state.supabase.auth.onAuthStateChange(async (_event, session) => {
+  state.supabase.auth.onAuthStateChange(async (event, session) => {
     state.session = session;
-    state.profile = null;
     if (session?.user) {
-      await loadWorkspace();
+      if (event === "SIGNED_IN") {
+        state.profile = null;
+        await loadWorkspace({ showLoading: true });
+      }
     } else {
+      state.profile = null;
       state.ui.loading = false;
       render();
     }
@@ -144,66 +148,80 @@ async function init() {
   } = await state.supabase.auth.getSession();
   state.session = session;
   if (session?.user) {
-    await loadWorkspace();
+    await loadWorkspace({ showLoading: true });
   } else {
     state.ui.loading = false;
     render();
   }
 }
 
-async function loadWorkspace() {
-  try {
-    state.ui.loading = true;
-    state.ui.error = "";
-    state.ui.notice = "";
-    render();
+async function loadWorkspace({ showLoading = true } = {}) {
+  if (workspaceLoadPromise) {
+    return workspaceLoadPromise;
+  }
 
-    const profile = await withTimeout(fetchProfile(state.session.user.id), WORKSPACE_TIMEOUT_MS);
-    state.profile = profile;
-    if (!isAdmin() && state.ui.activeTab === "dashboard") {
-      state.ui.activeTab = "opportunities";
-    }
-    ensureActiveTab();
+  workspaceLoadPromise = (async () => {
+    try {
+      if (showLoading) {
+        state.ui.loading = true;
+        state.ui.error = "";
+        state.ui.notice = "";
+        render();
+      }
 
-    if (!profile.active) {
-      state.profiles = [profile];
-      state.opportunities = [];
-      state.coachingNotes = [];
+      const profile = await withTimeout(fetchProfile(state.session.user.id), WORKSPACE_TIMEOUT_MS);
+      state.profile = profile;
+      if (!isAdmin() && state.ui.activeTab === "dashboard") {
+        state.ui.activeTab = "opportunities";
+      }
+      ensureActiveTab();
+
+      if (!profile.active) {
+        state.profiles = [profile];
+        state.opportunities = [];
+        state.coachingNotes = [];
+        state.opportunityActivities = [];
+        state.opportunityAttachments = [];
+        state.ui.loading = false;
+        render();
+        return;
+      }
+
+      const [settings, opportunities, coachingNotes, profiles, opportunityActivities, opportunityAttachments] = await withTimeout(Promise.all([
+        fetchSettings(),
+        fetchOpportunities(),
+        fetchCoachingNotes(),
+        isAdmin() ? fetchProfiles() : Promise.resolve([profile]),
+        fetchOpportunityActivities(),
+        fetchOpportunityAttachments()
+      ]), WORKSPACE_TIMEOUT_MS);
+
+      state.setup = settings;
+      state.opportunities = opportunities;
+      state.coachingNotes = coachingNotes;
+      state.profiles = profiles;
+      state.opportunityActivities = opportunityActivities;
+      state.opportunityAttachments = opportunityAttachments;
+      state.ui.recoveringSession = false;
+      state.ui.selectedOpportunityIds = [];
       state.ui.loading = false;
       render();
-      return;
+    } catch (error) {
+      console.error(error);
+      const recovered = await attemptAutomaticRecovery(error);
+      if (recovered) {
+        return;
+      }
+      state.ui.loading = false;
+      state.ui.error = error.message || "Could not load the workspace.";
+      state.ui.recoveringSession = true;
+      render();
+    } finally {
+      workspaceLoadPromise = null;
     }
+  })();
 
-    const [settings, opportunities, coachingNotes, profiles, opportunityActivities, opportunityAttachments] = await withTimeout(Promise.all([
-      fetchSettings(),
-      fetchOpportunities(),
-      fetchCoachingNotes(),
-      isAdmin() ? fetchProfiles() : Promise.resolve([profile]),
-      fetchOpportunityActivities(),
-      fetchOpportunityAttachments()
-    ]), WORKSPACE_TIMEOUT_MS);
-
-    state.setup = settings;
-    state.opportunities = opportunities;
-    state.coachingNotes = coachingNotes;
-    state.profiles = profiles;
-    state.opportunityActivities = opportunityActivities;
-    state.opportunityAttachments = opportunityAttachments;
-    state.ui.recoveringSession = false;
-    state.ui.selectedOpportunityIds = [];
-    state.ui.loading = false;
-    render();
-  } catch (error) {
-    console.error(error);
-    const recovered = await attemptAutomaticRecovery(error);
-    if (recovered) {
-      return;
-    }
-    state.ui.loading = false;
-    state.ui.error = error.message || "Could not load the workspace.";
-    state.ui.recoveringSession = true;
-    render();
-  }
+  return workspaceLoadPromise;
 }
 
 function handleBuildVersionChange() {
