@@ -805,6 +805,7 @@ function inferBiggestGap(rows, leads) {
 }
 
 function render() {
+  document.body.classList.toggle("app-shell-logged-in", Boolean(state.session && !isInactiveUser()));
   heroActionsEl.innerHTML = renderHeroActions();
   topNavEl.innerHTML = renderTopNav();
 
