@@ -91,6 +91,23 @@ create table if not exists public.opportunity_activity (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.opportunity_attachments (
+  id uuid primary key default gen_random_uuid(),
+  opportunity_id uuid not null references public.opportunities (id) on delete cascade,
+  file_name text not null default '',
+  file_path text not null unique,
+  file_type text not null default 'Other',
+  file_size bigint not null default 0,
+  mime_type text not null default 'application/octet-stream',
+  created_by uuid references public.profiles (id) on delete set null,
+  created_by_name text not null default '',
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+insert into storage.buckets (id, name, public)
+values ('opportunity-files', 'opportunity-files', false)
+on conflict (id) do nothing;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -164,6 +181,7 @@ alter table public.app_settings enable row level security;
 alter table public.opportunities enable row level security;
 alter table public.coaching_notes enable row level security;
 alter table public.opportunity_activity enable row level security;
+alter table public.opportunity_attachments enable row level security;
 
 create or replace function public.is_admin(user_id uuid)
 returns boolean
@@ -285,6 +303,93 @@ with check (
     select 1
     from public.opportunities
     where id = opportunity_id
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "attachments read own or admin" on public.opportunity_attachments;
+create policy "attachments read own or admin"
+on public.opportunity_attachments
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.opportunities
+    where id = opportunity_id
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "attachments insert own or admin" on public.opportunity_attachments;
+create policy "attachments insert own or admin"
+on public.opportunity_attachments
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.opportunities
+    where id = opportunity_id
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "attachments delete own or admin" on public.opportunity_attachments;
+create policy "attachments delete own or admin"
+on public.opportunity_attachments
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.opportunities
+    where id = opportunity_id
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "storage opportunity files read own or admin" on storage.objects;
+create policy "storage opportunity files read own or admin"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'opportunity-files'
+  and exists (
+    select 1
+    from public.opportunities
+    where id::text = (storage.foldername(name))[1]
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "storage opportunity files upload own or admin" on storage.objects;
+create policy "storage opportunity files upload own or admin"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'opportunity-files'
+  and exists (
+    select 1
+    from public.opportunities
+    where id::text = (storage.foldername(name))[1]
+      and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
+  )
+);
+
+drop policy if exists "storage opportunity files delete own or admin" on storage.objects;
+create policy "storage opportunity files delete own or admin"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'opportunity-files'
+  and exists (
+    select 1
+    from public.opportunities
+    where id::text = (storage.foldername(name))[1]
       and (assigned_user_id = auth.uid() or public.is_admin(auth.uid()))
   )
 );

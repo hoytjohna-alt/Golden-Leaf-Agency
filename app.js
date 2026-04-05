@@ -15,6 +15,7 @@ const AUTH_STORAGE_KEY = `${AUTH_STORAGE_PREFIX}-${APP_BUILD_ID}`;
 const VERSION_CHECK_PATH = "/version.json";
 const WORKSPACE_TIMEOUT_MS = 10000;
 const VERSION_CHECK_INTERVAL_MS = 45000;
+const ATTACHMENTS_BUCKET = "opportunity-files";
 
 const seedSettings = {
   assumptions: {
@@ -71,6 +72,7 @@ const state = {
   profiles: [],
   opportunities: [],
   opportunityActivities: [],
+  opportunityAttachments: [],
   coachingNotes: [],
   ui: {
     loading: true,
@@ -172,12 +174,13 @@ async function loadWorkspace() {
       return;
     }
 
-    const [settings, opportunities, coachingNotes, profiles, opportunityActivities] = await withTimeout(Promise.all([
+    const [settings, opportunities, coachingNotes, profiles, opportunityActivities, opportunityAttachments] = await withTimeout(Promise.all([
       fetchSettings(),
       fetchOpportunities(),
       fetchCoachingNotes(),
       isAdmin() ? fetchProfiles() : Promise.resolve([profile]),
-      fetchOpportunityActivities()
+      fetchOpportunityActivities(),
+      fetchOpportunityAttachments()
     ]), WORKSPACE_TIMEOUT_MS);
 
     state.setup = settings;
@@ -185,6 +188,7 @@ async function loadWorkspace() {
     state.coachingNotes = coachingNotes;
     state.profiles = profiles;
     state.opportunityActivities = opportunityActivities;
+    state.opportunityAttachments = opportunityAttachments;
     state.ui.recoveringSession = false;
     state.ui.selectedOpportunityIds = [];
     state.ui.loading = false;
@@ -422,6 +426,20 @@ async function fetchOpportunityActivities() {
     .order("created_at", { ascending: false });
   if (error) {
     if (String(error.message || "").includes("opportunity_activity")) {
+      return [];
+    }
+    throw error;
+  }
+  return data || [];
+}
+
+async function fetchOpportunityAttachments() {
+  const { data, error } = await state.supabase
+    .from("opportunity_attachments")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (String(error.message || "").includes("opportunity_attachments")) {
       return [];
     }
     throw error;
@@ -885,6 +903,12 @@ function getRepCommissionRows(rows) {
 
 function getOpportunityTimeline(opportunityId) {
   return state.opportunityActivities
+    .filter((item) => item.opportunity_id === opportunityId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
+function getOpportunityAttachments(opportunityId) {
+  return state.opportunityAttachments
     .filter((item) => item.opportunity_id === opportunityId)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
@@ -2011,6 +2035,7 @@ function renderOpportunityForm(row) {
 
 function renderLeadWorkspace(row, timeline) {
   const taskTone = row.taskOverdue ? "bad" : (row.taskPriority === "High" ? "warn" : "good");
+  const attachments = row.id ? getOpportunityAttachments(row.id) : [];
   return `
     <div class="lead-workspace">
       <article class="form-card lead-workspace-panel">
@@ -2056,6 +2081,15 @@ function renderLeadWorkspace(row, timeline) {
         </div>
         ${renderOpportunityTimeline(row, timeline)}
       </article>
+      <article class="table-card lead-workspace-panel">
+        <div class="panel-header">
+          <div>
+            <h3>Attachments</h3>
+            <p>${row.id ? "Quotes, proposals, dec pages, and renewal docs live with the lead." : "Create the lead first, then attach files here."}</p>
+          </div>
+        </div>
+        ${renderOpportunityAttachments(row, attachments)}
+      </article>
     </div>
   `;
 }
@@ -2096,6 +2130,54 @@ function renderOpportunityTimeline(row, timeline) {
           </div>
         </article>
       `).join("")}
+    </div>
+  `;
+}
+
+function renderOpportunityAttachments(row, attachments) {
+  if (!row.id) {
+    return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, you can upload files tied directly to this account.</p></div>`;
+  }
+
+  return `
+    <div class="attachment-stack">
+      <form id="attachmentUploadForm" class="attachment-form">
+        <input type="hidden" name="opportunityId" value="${escapeHtml(row.id)}" />
+        <label class="full-span">
+          Add File
+          <input type="file" name="file" required />
+        </label>
+        <label>
+          File Type
+          <select name="fileType">
+            <option value="Quote">Quote</option>
+            <option value="Proposal">Proposal</option>
+            <option value="Dec Page">Dec Page</option>
+            <option value="Renewal">Renewal</option>
+            <option value="Carrier Doc">Carrier Doc</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <button class="button button-primary" type="submit">Upload File</button>
+      </form>
+      ${attachments.length
+        ? `
+          <div class="attachment-list">
+            ${attachments.map((file) => `
+              <article class="attachment-card">
+                <div>
+                  <strong>${escapeHtml(file.file_name)}</strong>
+                  <div class="subtle">${escapeHtml(file.file_type || "Other")} · ${formatFileSize(file.file_size)} · ${escapeHtml(file.created_by_name || "System")}</div>
+                </div>
+                <div class="attachment-actions">
+                  <button class="button button-ghost" type="button" data-download-attachment="${file.id}">Open</button>
+                  <button class="button button-ghost" type="button" data-delete-attachment="${file.id}">Delete</button>
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        `
+        : `<div class="empty-state"><h3>No files yet</h3><p>Upload quotes, proposals, and renewal documents so they stay attached to this lead.</p></div>`}
     </div>
   `;
 }
@@ -2474,6 +2556,14 @@ function formatRenewalCountdown(daysToExpiration) {
   return `${daysToExpiration} days to renew`;
 }
 
+function formatFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (!size) return "0 B";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2847,6 +2937,46 @@ function bindAppEvents() {
     });
   }
 
+  const attachmentUploadForm = document.getElementById("attachmentUploadForm");
+  if (attachmentUploadForm) {
+    attachmentUploadForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(attachmentUploadForm);
+      try {
+        await uploadOpportunityAttachment({
+          opportunityId: String(formData.get("opportunityId") || ""),
+          fileType: String(formData.get("fileType") || "Other"),
+          file: formData.get("file")
+        });
+      } catch (error) {
+        state.ui.error = error.message || "Could not upload the file.";
+        render();
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-download-attachment]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await openOpportunityAttachment(button.dataset.downloadAttachment);
+      } catch (error) {
+        state.ui.error = error.message || "Could not open that file.";
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-delete-attachment]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await deleteOpportunityAttachment(button.dataset.deleteAttachment);
+      } catch (error) {
+        state.ui.error = error.message || "Could not delete that file.";
+        render();
+      }
+    });
+  });
+
   document.querySelectorAll("[data-coaching-field]").forEach((input) => {
     input.addEventListener("change", async (event) => {
       try {
@@ -3032,6 +3162,99 @@ async function saveOpportunity(formData) {
   });
   state.ui.activeOpportunityId = data.id;
   state.ui.opportunityTab = existing ? "update" : "stage";
+  await loadWorkspace();
+}
+
+async function uploadOpportunityAttachment({ opportunityId, fileType, file }) {
+  if (!(file instanceof File) || !file.size) {
+    throw new Error("Choose a file before uploading.");
+  }
+  const target = state.opportunities.find((item) => item.id === opportunityId);
+  if (!target) {
+    throw new Error("Save the lead first before uploading files.");
+  }
+
+  const safeName = file.name.replace(/[^\w.-]+/g, "-");
+  const filePath = `${opportunityId}/${Date.now()}-${safeName}`;
+  const { error: uploadError } = await state.supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .upload(filePath, file, { upsert: false });
+  if (uploadError) {
+    throw new Error("Upload failed. Run the latest Supabase schema and confirm the storage bucket exists.");
+  }
+
+  const { error: metadataError } = await state.supabase.from("opportunity_attachments").insert({
+    opportunity_id: opportunityId,
+    file_name: file.name,
+    file_path: filePath,
+    file_type: fileType,
+    file_size: file.size,
+    mime_type: file.type || "application/octet-stream",
+    created_by: state.profile?.id || null,
+    created_by_name: state.profile?.full_name || state.session?.user?.email || "System"
+  });
+
+  if (metadataError) {
+    await state.supabase.storage.from(ATTACHMENTS_BUCKET).remove([filePath]);
+    if (String(metadataError.message || "").includes("opportunity_attachments")) {
+      throw new Error("Attachment metadata table is missing. Run the latest Supabase schema first.");
+    }
+    throw metadataError;
+  }
+
+  await logOpportunityActivity({
+    opportunityId,
+    title: "Attachment uploaded",
+    detail: `${file.name} added as ${fileType}.`
+  });
+  state.ui.notice = `${file.name} uploaded successfully.`;
+  await loadWorkspace();
+}
+
+async function openOpportunityAttachment(attachmentId) {
+  const attachment = state.opportunityAttachments.find((item) => item.id === attachmentId);
+  if (!attachment) {
+    throw new Error("That file could not be found.");
+  }
+  const { data, error } = await state.supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .createSignedUrl(attachment.file_path, 60);
+  if (error || !data?.signedUrl) {
+    throw new Error("Could not create a secure file link.");
+  }
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+async function deleteOpportunityAttachment(attachmentId) {
+  const attachment = state.opportunityAttachments.find((item) => item.id === attachmentId);
+  if (!attachment) {
+    throw new Error("That file could not be found.");
+  }
+  if (!window.confirm(`Delete ${attachment.file_name}?`)) {
+    return;
+  }
+
+  const { error: storageError } = await state.supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .remove([attachment.file_path]);
+  if (storageError) {
+    throw new Error("Could not remove the stored file.");
+  }
+
+  const { error: metadataError } = await state.supabase
+    .from("opportunity_attachments")
+    .delete()
+    .eq("id", attachmentId);
+  if (metadataError) {
+    throw metadataError;
+  }
+
+  await logOpportunityActivity({
+    opportunityId: attachment.opportunity_id,
+    title: "Attachment deleted",
+    detail: `${attachment.file_name} was removed from the lead workspace.`
+  });
+  state.ui.notice = `${attachment.file_name} deleted.`;
   await loadWorkspace();
 }
 

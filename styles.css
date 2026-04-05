@@ -910,6 +910,40 @@ main {
   font-size: 0.9rem;
 }
 
+.attachment-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.attachment-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.attachment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.attachment-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(27, 58, 92, 0.08);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff, #f7f9fc);
+}
+
+.attachment-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 input,
 select,
 textarea {
@@ -1131,7 +1165,8 @@ tbody tr:hover {
   }
 
   .toolbar-grid,
-  .invite-form {
+  .invite-form,
+  .attachment-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1212,8 +1247,14 @@ tbody tr:hover {
   .checklist-grid,
   .form-grid,
   .toolbar-grid,
-  .invite-form {
+  .invite-form,
+  .attachment-form {
     grid-template-columns: 1fr;
+  }
+
+  .attachment-card {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .kanban-board {
