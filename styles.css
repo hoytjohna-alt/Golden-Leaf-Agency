@@ -688,6 +688,46 @@ tbody tr:hover {
   overflow: auto;
 }
 
+.users-table-wrap {
+  overflow-x: auto;
+}
+
+.users-table {
+  min-width: 980px;
+}
+
+.users-table th,
+.users-table td {
+  vertical-align: middle;
+}
+
+.users-table-name {
+  min-width: 230px;
+}
+
+.users-table-email {
+  min-width: 340px;
+  word-break: break-word;
+}
+
+.users-table-select {
+  min-width: 140px;
+}
+
+.users-table-count {
+  min-width: 140px;
+  white-space: nowrap;
+}
+
+.users-table-actions {
+  min-width: 170px;
+  white-space: nowrap;
+}
+
+.users-table-actions .button {
+  white-space: nowrap;
+}
+
 .auth-panel {
   display: grid;
   grid-template-columns: 0.9fr 1.1fr;
@@ -821,6 +861,10 @@ tbody tr:hover {
 
   .kanban-board {
     grid-template-columns: 1fr;
+  }
+
+  .users-table {
+    min-width: 900px;
   }
 
   .bar-row {

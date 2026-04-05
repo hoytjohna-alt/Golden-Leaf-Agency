@@ -1231,8 +1231,8 @@ function render() {
               </label>
               <button class="button button-primary" type="submit">Send Invite Email</button>
             </form>
-            <div class="table-wrap">
-              <table>
+            <div class="table-wrap users-table-wrap">
+              <table class="users-table">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -1246,22 +1246,22 @@ function render() {
                 <tbody>
                   ${visibleManagedProfiles.map((profile) => `
                     <tr>
-                      <td><input data-profile-name="${profile.id}" value="${escapeHtml(profile.full_name)}" /></td>
-                      <td>${escapeHtml(profile.email || "")}</td>
-                      <td>
+                      <td class="users-table-name"><input data-profile-name="${profile.id}" value="${escapeHtml(profile.full_name)}" /></td>
+                      <td class="users-table-email">${escapeHtml(profile.email || "")}</td>
+                      <td class="users-table-select">
                         <select data-profile-role="${profile.id}">
                           <option value="rep" ${profile.role === "rep" ? "selected" : ""}>rep</option>
                           <option value="admin" ${profile.role === "admin" ? "selected" : ""}>admin</option>
                         </select>
                       </td>
-                      <td>
+                      <td class="users-table-select">
                         <select data-profile-active="${profile.id}">
                           <option value="true" ${profile.active ? "selected" : ""}>Active</option>
                           <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
                         </select>
                       </td>
-                      <td>${getAssignedLeadCount(profile.id)} leads</td>
-                      <td>
+                      <td class="users-table-count">${getAssignedLeadCount(profile.id)} leads</td>
+                      <td class="users-table-actions">
                         ${profile.id === state.profile.id ? '<span class="subtle">Current admin</span>' : '<button class="button button-ghost" type="button" data-remove-user="' + profile.id + '">Remove</button>'}
                       </td>
                     </tr>
@@ -1273,8 +1273,8 @@ function render() {
             ${removedProfiles.length ? `
               <div class="archived-users">
                 <h4>Removed Users</h4>
-                <div class="table-wrap">
-                  <table>
+                <div class="table-wrap users-table-wrap">
+                  <table class="users-table users-table-removed">
                     <thead>
                       <tr>
                         <th>Name</th>
