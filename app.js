@@ -801,8 +801,7 @@ function mapOpportunityToDb(formData) {
       effectiveDate: formData.effectiveDate,
       policyTermMonths
     });
-  return {
-    id: formData.id || undefined,
+  const payload = {
     lead_number: formData.leadNumber || generateLeadNumber(formData.dateReceived),
     assigned_user_id: assignedProfile.id,
     assigned_rep_name: assignedProfile.full_name,
@@ -832,6 +831,12 @@ function mapOpportunityToDb(formData) {
     task_priority: formData.taskPriority || "Medium",
     notes: formData.notes || ""
   };
+
+  if (formData.id) {
+    payload.id = formData.id;
+  }
+
+  return payload;
 }
 
 function todayIso() {
@@ -1361,6 +1366,7 @@ function downloadLeadImportTemplate() {
 function downloadDemoLeadImportFile() {
   const leadSources = state.setup.leadSources;
   const products = state.setup.products;
+  const activePeople = getAssignableProfiles();
   const source = (name) => leadSources.find((item) => item === name) || leadSources[0] || "Purchased Leads";
   const product = (name) => products.find((item) => item === name) || products[0] || "GL / BOP";
   const today = new Date();
@@ -1369,96 +1375,194 @@ function downloadDemoLeadImportFile() {
     next.setDate(next.getDate() + days);
     return next.toISOString().slice(0, 10);
   };
-
-  const demoRows = [
+  const personNames = activePeople.length
+    ? activePeople.map((profile) => profile.full_name)
+    : ["Jordan Ellis", "Maya Carter"];
+  const templates = [
     {
-      "Business Name": "Oak Street Builders",
-      "Lead Source": source("Purchased Leads"),
-      "Contact Name": "Maya Ellis",
-      "Contact Email": "maya@oakstreetbuilders.com",
-      "Contact Phone": "317-555-0182",
-      "Date Received": isoFromOffset(-2),
-      "Product Focus": product("GL / BOP"),
-      "Target Niche": "Contractor",
-      "Assigned Rep": "",
-      Status: "New Lead",
-      "Lead Cost": 46,
-      "Next Task": "Intro call and intake review",
-      "Next Follow-Up Date": isoFromOffset(1),
-      Notes: "Fresh inbound contractor account for demo."
+      businessPrefix: "Oak Street Builders",
+      contactFirst: "Maya",
+      contactLast: "Ellis",
+      domain: "oakstreetbuilders.com",
+      source: source("Purchased Leads"),
+      product: product("GL / BOP"),
+      niche: "Contractor",
+      status: "New Lead",
+      leadCost: 46,
+      nextTask: "Intro call and intake review",
+      followUpOffset: 1,
+      notes: "Fresh inbound contractor account for demo."
     },
     {
-      "Business Name": "Riverbend Dental Group",
-      "Lead Source": source("Referral"),
-      "Contact Name": "Lauren Hale",
-      "Contact Email": "lauren@riverbenddental.com",
-      "Contact Phone": "463-555-0141",
-      "Date Received": isoFromOffset(-8),
-      "Product Focus": product("Workers Comp"),
-      "Target Niche": "Dental",
-      "Assigned Rep": "",
-      Status: "Quoted",
-      "Lead Cost": 0,
-      "Premium Quoted": 12850,
-      "Next Task": "Quote follow-up",
-      "Next Follow-Up Date": isoFromOffset(-1),
-      Notes: "Use this one to show overdue follow-up and quoted revenue."
+      businessPrefix: "Riverbend Dental Group",
+      contactFirst: "Lauren",
+      contactLast: "Hale",
+      domain: "riverbenddental.com",
+      source: source("Referral"),
+      product: product("Workers Comp"),
+      niche: "Dental",
+      status: "Quoted",
+      leadCost: 0,
+      premiumQuoted: 12850,
+      nextTask: "Quote follow-up",
+      followUpOffset: -1,
+      notes: "Quoted account with overdue follow-up for dashboard urgency."
     },
     {
-      "Business Name": "Northside Fitness Co.",
-      "Lead Source": source("Self-Generated"),
-      "Contact Name": "Jared Cole",
-      "Contact Email": "jared@northsidefitness.co",
-      "Contact Phone": "812-555-0119",
-      "Date Received": isoFromOffset(-15),
-      "Product Focus": product("Commercial Auto"),
-      "Target Niche": "Fitness",
-      "Assigned Rep": "",
-      Status: "Pending Decision",
-      "Lead Cost": 0,
-      "Premium Quoted": 9420,
-      "Next Task": "Decision check-in",
-      "Next Follow-Up Date": isoFromOffset(2),
-      Notes: "Good mid-pipeline example for board movement."
+      businessPrefix: "Northside Fitness Co.",
+      contactFirst: "Jared",
+      contactLast: "Cole",
+      domain: "northsidefitness.co",
+      source: source("Self-Generated"),
+      product: product("Commercial Auto"),
+      niche: "Fitness",
+      status: "Pending Decision",
+      leadCost: 0,
+      premiumQuoted: 9420,
+      nextTask: "Decision check-in",
+      followUpOffset: 2,
+      notes: "Mid-pipeline example for board movement."
     },
     {
-      "Business Name": "Harvest Kitchen Supply",
-      "Lead Source": source("Purchased Leads"),
-      "Contact Name": "Tessa Warren",
-      "Contact Email": "tessa@harvestkitchen.com",
-      "Contact Phone": "765-555-0166",
-      "Date Received": isoFromOffset(-35),
-      "Product Focus": product("GL / BOP"),
-      "Target Niche": "Restaurant Supplier",
-      "Assigned Rep": "",
-      Status: "Bound",
-      "Policy Type": "New",
-      "Effective Date": isoFromOffset(-10),
-      "Premium Bound": 18600,
-      "Next Task": "Welcome and document delivery",
-      Notes: "Bound account that should appear in commission and renewal views."
+      businessPrefix: "Harvest Kitchen Supply",
+      contactFirst: "Tessa",
+      contactLast: "Warren",
+      domain: "harvestkitchen.com",
+      source: source("Purchased Leads"),
+      product: product("GL / BOP"),
+      niche: "Restaurant Supplier",
+      status: "Bound",
+      policyType: "New",
+      effectiveOffset: -10,
+      premiumBound: 18600,
+      nextTask: "Welcome and document delivery",
+      notes: "Bound account for commission and renewal views."
     },
     {
-      "Business Name": "Lakeshore Property Group",
-      "Lead Source": source("Referral"),
-      "Contact Name": "Daniel Brooks",
-      "Contact Email": "daniel@lakeshorepg.com",
-      "Contact Phone": "219-555-0174",
-      "Date Received": isoFromOffset(-50),
-      "Product Focus": product("GL / BOP"),
-      "Target Niche": "Property Management",
-      "Assigned Rep": "",
-      Status: "Bound",
-      "Policy Type": "Renewal",
-      "Renewal Status": "Quoted",
-      "Effective Date": isoFromOffset(-300),
-      "Expiration Date": isoFromOffset(21),
-      "Premium Bound": 22450,
-      "Next Task": "Renewal review call",
-      "Next Follow-Up Date": isoFromOffset(3),
-      Notes: "Use this one to show renewal urgency and retention workflow."
+      businessPrefix: "Lakeshore Property Group",
+      contactFirst: "Daniel",
+      contactLast: "Brooks",
+      domain: "lakeshorepg.com",
+      source: source("Referral"),
+      product: product("GL / BOP"),
+      niche: "Property Management",
+      status: "Bound",
+      policyType: "Renewal",
+      renewalStatus: "Quoted",
+      effectiveOffset: -300,
+      expirationOffset: 21,
+      premiumBound: 22450,
+      nextTask: "Renewal review call",
+      followUpOffset: 3,
+      notes: "Renewal urgency example."
+    },
+    {
+      businessPrefix: "Summit Auto Spa",
+      contactFirst: "Kylie",
+      contactLast: "Mason",
+      domain: "summitautospa.com",
+      source: source("Digital Marketing"),
+      product: product("Commercial Auto"),
+      niche: "Auto Services",
+      status: "Attempted",
+      leadCost: 24,
+      nextTask: "Second call attempt",
+      followUpOffset: 0,
+      notes: "Early-stage outbound attempt."
+    },
+    {
+      businessPrefix: "Blue Harbor Realty",
+      contactFirst: "Noah",
+      contactLast: "Pierce",
+      domain: "blueharborrealty.com",
+      source: source("Referral"),
+      product: product("GL / BOP"),
+      niche: "Real Estate",
+      status: "Contacted",
+      leadCost: 0,
+      nextTask: "Gather loss runs",
+      followUpOffset: 2,
+      notes: "Contact made and underwriting docs requested."
+    },
+    {
+      businessPrefix: "Pinecrest Pediatrics",
+      contactFirst: "Avery",
+      contactLast: "Grant",
+      domain: "pinecrestpediatrics.com",
+      source: source("Purchased Leads"),
+      product: product("Workers Comp"),
+      niche: "Medical",
+      status: "Qualified",
+      leadCost: 52,
+      premiumQuoted: 7640,
+      nextTask: "Finalize market approach",
+      followUpOffset: 1,
+      notes: "Qualified medical account ready for quoting."
+    },
+    {
+      businessPrefix: "Greenline Roofing",
+      contactFirst: "Ethan",
+      contactLast: "Cross",
+      domain: "greenlineroofing.com",
+      source: source("Self-Generated"),
+      product: product("GL / BOP"),
+      niche: "Roofing",
+      status: "Quoted",
+      leadCost: 0,
+      premiumQuoted: 17350,
+      nextTask: "Review proposal with owner",
+      followUpOffset: 1,
+      notes: "Self-generated quoted account."
+    },
+    {
+      businessPrefix: "Cedar Point Logistics",
+      contactFirst: "Olivia",
+      contactLast: "Reed",
+      domain: "cedarpointlogistics.com",
+      source: source("Purchased Leads"),
+      product: product("Commercial Auto"),
+      niche: "Logistics",
+      status: "Lost",
+      leadCost: 39,
+      premiumQuoted: 11920,
+      nextTask: "Set 90-day recycle reminder",
+      followUpOffset: 30,
+      notes: "Closed-lost example for pipeline and reporting."
     }
   ];
+
+  const demoRows = [];
+  personNames.forEach((personName, personIndex) => {
+    templates.forEach((template, templateIndex) => {
+      const leadIndex = personIndex * templates.length + templateIndex + 1;
+      const businessName = personNames.length > 1
+        ? `${template.businessPrefix} ${personIndex + 1}`
+        : template.businessPrefix;
+      const dateReceivedOffset = -1 * ((templateIndex + 1) * 3 + personIndex * 2);
+      demoRows.push({
+        "Business Name": businessName,
+        "Lead Source": template.source,
+        "Contact Name": `${template.contactFirst} ${template.contactLast}`,
+        "Contact Email": `${template.contactFirst.toLowerCase()}.${template.contactLast.toLowerCase()}${personIndex + 1}@${template.domain}`,
+        "Contact Phone": `317-555-${String(1100 + leadIndex).padStart(4, "0")}`,
+        "Date Received": isoFromOffset(dateReceivedOffset),
+        "Product Focus": template.product,
+        "Target Niche": template.niche,
+        "Assigned Rep": personName,
+        Status: template.status,
+        "Policy Type": template.policyType || (template.status === "Bound" ? "New" : "New"),
+        "Renewal Status": template.renewalStatus || "Not Started",
+        "Effective Date": typeof template.effectiveOffset === "number" ? isoFromOffset(template.effectiveOffset) : "",
+        "Expiration Date": typeof template.expirationOffset === "number" ? isoFromOffset(template.expirationOffset) : "",
+        "Lead Cost": template.leadCost || 0,
+        "Premium Quoted": template.premiumQuoted || 0,
+        "Premium Bound": template.premiumBound || 0,
+        "Next Task": template.nextTask,
+        "Next Follow-Up Date": typeof template.followUpOffset === "number" ? isoFromOffset(template.followUpOffset) : "",
+        Notes: `${template.notes} Assigned for demo to ${personName}.`
+      });
+    });
+  });
 
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.json_to_sheet(demoRows);
