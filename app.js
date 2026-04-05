@@ -10,7 +10,9 @@ const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnon
 const APP_BUILD_ID = typeof __APP_BUILD_ID__ !== "undefined" ? __APP_BUILD_ID__ : "v1";
 const APP_BUILD_STORAGE_KEY = "golden-leaf-app-build-id";
 const APP_RECOVERY_STORAGE_KEY = "golden-leaf-app-recovery-build-id";
+const VERSION_CHECK_PATH = "/version.json";
 const WORKSPACE_TIMEOUT_MS = 10000;
+const VERSION_CHECK_INTERVAL_MS = 45000;
 
 const seedSettings = {
   assumptions: {
@@ -85,9 +87,12 @@ const state = {
     bulkAssignUserId: "",
     selectedOpportunityIds: [],
     opportunityView: "board",
-    carrierEditing: false
+    carrierEditing: false,
+    assumptionEditing: false
   }
 };
+
+let versionCheckTimer = null;
 
 const appEl = document.getElementById("app");
 const heroActionsEl = document.getElementById("heroActions");
@@ -97,6 +102,7 @@ init();
 
 async function init() {
   handleBuildVersionChange();
+  setupVersionWatchers();
 
   if (!SUPABASE_READY) {
     state.ui.loading = false;
@@ -190,16 +196,69 @@ function handleBuildVersionChange() {
   const previousBuildId = localStorage.getItem(APP_BUILD_STORAGE_KEY);
   if (previousBuildId !== APP_BUILD_ID) {
     localStorage.setItem(APP_BUILD_STORAGE_KEY, APP_BUILD_ID);
-    state.ui.search = "";
-    state.ui.repFilter = "All";
-    state.ui.sourceFilter = "All";
-    state.ui.statusFilter = "All";
-    state.ui.dateFrom = "";
-    state.ui.dateTo = "";
-    state.ui.activeOpportunityId = null;
-    state.ui.bulkAssignUserId = "";
-    state.ui.selectedOpportunityIds = [];
+    resetTransientUiState();
   }
+}
+
+function resetTransientUiState() {
+  state.ui.search = "";
+  state.ui.repFilter = "All";
+  state.ui.sourceFilter = "All";
+  state.ui.statusFilter = "All";
+  state.ui.dateFrom = "";
+  state.ui.dateTo = "";
+  state.ui.activeOpportunityId = null;
+  state.ui.bulkAssignUserId = "";
+  state.ui.selectedOpportunityIds = [];
+}
+
+function setupVersionWatchers() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void checkForNewBuild();
+    }
+  });
+  window.addEventListener("focus", () => {
+    void checkForNewBuild();
+  });
+  if (versionCheckTimer) {
+    window.clearInterval(versionCheckTimer);
+  }
+  versionCheckTimer = window.setInterval(() => {
+    void checkForNewBuild();
+  }, VERSION_CHECK_INTERVAL_MS);
+}
+
+async function checkForNewBuild() {
+  try {
+    const response = await fetch(`${VERSION_CHECK_PATH}?t=${Date.now()}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return;
+    }
+    const data = await response.json();
+    const remoteBuildId = data?.buildId;
+    if (remoteBuildId && remoteBuildId !== APP_BUILD_ID) {
+      await refreshForNewBuild();
+    }
+  } catch (_error) {
+    // Silent on purpose. If the check endpoint is briefly unavailable,
+    // the current session should keep running normally.
+  }
+}
+
+async function refreshForNewBuild() {
+  if (sessionStorage.getItem(APP_RECOVERY_STORAGE_KEY) === `refresh:${APP_BUILD_ID}`) {
+    return;
+  }
+  sessionStorage.setItem(APP_RECOVERY_STORAGE_KEY, `refresh:${APP_BUILD_ID}`);
+  resetTransientUiState();
+  state.ui.notice = "A new version of the app was deployed. Refreshing your workspace.";
+  render();
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 250);
 }
 
 function withTimeout(promise, timeoutMs) {
@@ -1121,11 +1180,20 @@ function render() {
             <p>Only the admin can manage global assumptions, producer roster, and dropdown lists.</p>
           </div>
         </div>
+        <div class="panel-header">
+          <div>
+            <h3>Agency Assumptions</h3>
+            <p>Locked by default so forecasting and payout assumptions are not changed accidentally.</p>
+          </div>
+          <button class="button ${state.ui.assumptionEditing ? "button-secondary" : "button-ghost"}" id="toggleAssumptionEditingButton" type="button">
+            ${state.ui.assumptionEditing ? "Done Editing" : "Edit Assumptions"}
+          </button>
+        </div>
         <div class="four-column">
           ${Object.entries(state.setup.assumptions).map(([key, value]) => `
             <label class="mini-card">
               ${humanize(key)}
-              <input data-assumption="${key}" type="number" step="0.01" value="${value}" />
+              <input data-assumption="${key}" type="number" step="0.01" value="${value}" ${state.ui.assumptionEditing ? "" : "disabled"} />
             </label>
           `).join("")}
         </div>
@@ -2128,6 +2196,18 @@ function bindAppEvents() {
     });
   }
 
+  const toggleAssumptionEditingButton = document.getElementById("toggleAssumptionEditingButton");
+  if (toggleAssumptionEditingButton) {
+    toggleAssumptionEditingButton.addEventListener("click", () => {
+      state.ui.assumptionEditing = !state.ui.assumptionEditing;
+      state.ui.notice = state.ui.assumptionEditing
+        ? "Agency assumptions unlocked for editing."
+        : "Agency assumptions locked.";
+      state.ui.error = "";
+      render();
+    });
+  }
+
   const toggleCarrierEditingButton = document.getElementById("toggleCarrierEditingButton");
   if (toggleCarrierEditingButton) {
     toggleCarrierEditingButton.addEventListener("click", () => {
@@ -2551,15 +2631,7 @@ async function resetLocalSession() {
   state.ui.error = "";
   state.ui.notice = "Resetting local session and reloading the app.";
   state.ui.recoveringSession = false;
-  state.ui.search = "";
-  state.ui.repFilter = "All";
-  state.ui.sourceFilter = "All";
-  state.ui.statusFilter = "All";
-  state.ui.dateFrom = "";
-  state.ui.dateTo = "";
-  state.ui.activeOpportunityId = null;
-  state.ui.bulkAssignUserId = "";
-  state.ui.selectedOpportunityIds = [];
+  resetTransientUiState();
   sessionStorage.removeItem(APP_RECOVERY_STORAGE_KEY);
   if (state.supabase) {
     await state.supabase.auth.signOut({ scope: "local" });
