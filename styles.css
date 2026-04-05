@@ -418,6 +418,90 @@ main {
   background: linear-gradient(90deg, var(--gold), rgba(212, 168, 85, 0.08));
 }
 
+#dashboard,
+#reports,
+#setup,
+#integrations,
+#help,
+#scorecards,
+#coaching,
+#opportunities {
+  scroll-margin-top: 90px;
+}
+
+#dashboard > .two-column,
+#reports > .two-column,
+#integrations > .two-column,
+#scorecards > .two-column,
+#coaching > .two-column {
+  align-items: start;
+}
+
+#dashboard .table-card,
+#reports .table-card,
+#setup .table-card,
+#integrations .table-card,
+#help .table-card {
+  padding: 11px 12px;
+}
+
+#dashboard .dashboard-grid,
+#dashboard .metrics-grid {
+  gap: 8px;
+}
+
+#dashboard .dashboard-grid .stat-card,
+#dashboard .metrics-grid .kpi-card {
+  min-height: 108px;
+}
+
+#reports .owner-report-card {
+  min-height: 106px;
+}
+
+#opportunities .filter-card {
+  position: sticky;
+  top: 58px;
+  z-index: 4;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+}
+
+#opportunities > .two-column {
+  grid-template-columns: minmax(0, 1.12fr) minmax(360px, 0.88fr);
+  align-items: start;
+}
+
+#opportunities .table-card.board-host {
+  padding: 10px;
+}
+
+#setup .section-tabs,
+#help .section-tabs {
+  margin-bottom: 12px;
+}
+
+#setup .users-table-wrap,
+#setup .table-wrap,
+#reports .table-wrap,
+#scorecards .table-wrap {
+  border: 1px solid rgba(27, 58, 92, 0.07);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.96));
+}
+
+#integrations .two-column,
+#help .dashboard-grid.help-grid {
+  align-items: start;
+}
+
+#help .help-article-card {
+  border-style: solid;
+}
+
+#help .help-center-callout {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 240, 226, 0.96));
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -1601,6 +1685,14 @@ tbody tr:hover td {
 
   .assistant-panel {
     width: min(540px, calc(100vw - 26px));
+  }
+
+  #opportunities > .two-column {
+    grid-template-columns: 1fr;
+  }
+
+  #opportunities .filter-card {
+    top: 48px;
   }
 }
 

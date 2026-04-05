@@ -1442,11 +1442,11 @@ function getAvailableTabs() {
     { id: "dashboard", label: "Dashboard" },
     { id: "opportunities", label: isAdmin() ? "Pipeline" : "My Pipeline" },
     { id: "integrations", label: "Integrations" },
-    { id: "help", label: "Help Center" },
     ...(isAdmin() ? [{ id: "reports", label: "Reports" }] : []),
     { id: "scorecards", label: "Scorecards" },
     { id: "coaching", label: "Coaching" },
-    ...(isAdmin() ? [{ id: "setup", label: "Setup" }] : [])
+    ...(isAdmin() ? [{ id: "setup", label: "Setup" }] : []),
+    { id: "help", label: "Help Center" }
   ];
 }
 
