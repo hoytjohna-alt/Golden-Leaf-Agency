@@ -569,9 +569,6 @@ main {
 }
 
 #opportunities .filter-card {
-  position: sticky;
-  top: 58px;
-  z-index: 4;
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
 }
@@ -1991,9 +1988,6 @@ tbody tr:hover td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  #opportunities .filter-card {
-    top: 48px;
-  }
 }
 
 @media (max-width: 760px) {

@@ -2635,9 +2635,14 @@ function render() {
                 <h3>Carrier Commission Table</h3>
                 <p>Locked by default so the commission model is not changed accidentally.</p>
               </div>
-              <button class="button ${state.ui.carrierEditing ? "button-secondary" : "button-ghost"}" id="toggleCarrierEditingButton" type="button">
-                ${state.ui.carrierEditing ? "Done Editing" : "Edit Table"}
-              </button>
+              <div class="toolbar-group">
+                <button class="button button-ghost" id="addCarrierButton" type="button" ${state.ui.carrierEditing ? "" : "disabled"}>
+                  Add Carrier
+                </button>
+                <button class="button ${state.ui.carrierEditing ? "button-secondary" : "button-ghost"}" id="toggleCarrierEditingButton" type="button">
+                  ${state.ui.carrierEditing ? "Done Editing" : "Edit Table"}
+                </button>
+              </div>
             </div>
             <div class="table-wrap">
               <table class="settings-table">
@@ -2646,6 +2651,7 @@ function render() {
                     <th>Carrier</th>
                     <th>New %</th>
                     <th>Renewal %</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2654,6 +2660,11 @@ function render() {
                       <td><input data-carrier-name="${index}" value="${escapeHtml(carrier.name)}" ${state.ui.carrierEditing ? "" : "disabled"} /></td>
                       <td><input data-carrier-new="${index}" type="number" step="0.01" value="${Number(carrier.newPct || 0)}" ${state.ui.carrierEditing ? "" : "disabled"} /></td>
                       <td><input data-carrier-renewal="${index}" type="number" step="0.01" value="${Number(carrier.renewalPct || 0)}" ${state.ui.carrierEditing ? "" : "disabled"} /></td>
+                      <td>
+                        <button class="button button-ghost" type="button" data-delete-carrier="${index}" ${state.ui.carrierEditing ? "" : "disabled"}>
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   `).join("")}
                 </tbody>
@@ -4624,6 +4635,20 @@ function bindAppEvents() {
     });
   }
 
+  const addCarrierButton = document.getElementById("addCarrierButton");
+  if (addCarrierButton) {
+    addCarrierButton.addEventListener("click", async () => {
+      state.setup.carriers = [
+        ...state.setup.carriers,
+        { name: "New Carrier", newPct: 0.12, renewalPct: 0.1, notes: "" }
+      ];
+      await persistSettings();
+      state.ui.notice = "Carrier row added.";
+      state.ui.error = "";
+      render();
+    });
+  }
+
   const exportWorkbookButton = document.getElementById("exportWorkbookButton");
   if (exportWorkbookButton) {
     exportWorkbookButton.addEventListener("click", () => {
@@ -4736,6 +4761,17 @@ function bindAppEvents() {
     input.addEventListener("change", async (event) => {
       state.setup.carriers[Number(event.target.dataset.carrierRenewal)].renewalPct = Number(event.target.value || 0);
       await persistSettings();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-carrier]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      const index = Number(event.target.dataset.deleteCarrier);
+      state.setup.carriers = state.setup.carriers.filter((_, itemIndex) => itemIndex !== index);
+      await persistSettings();
+      state.ui.notice = "Carrier removed from the commission table.";
+      state.ui.error = "";
+      render();
     });
   });
 }
