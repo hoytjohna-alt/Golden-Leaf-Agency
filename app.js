@@ -762,6 +762,37 @@ function getOpportunityTimeline(opportunityId) {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
+function getTaskQueue(rows) {
+  return rows
+    .filter((row) => !row.closed && (row.nextTask || row.nextFollowUpDate))
+    .sort((a, b) => {
+      const priorityScore = { High: 0, Medium: 1, Low: 2 };
+      const aScore = priorityScore[a.taskPriority || "Medium"] ?? 1;
+      const bScore = priorityScore[b.taskPriority || "Medium"] ?? 1;
+      if (a.taskOverdue !== b.taskOverdue) return a.taskOverdue ? -1 : 1;
+      if (aScore !== bScore) return aScore - bScore;
+      return (a.nextFollowUpDate || "9999-12-31").localeCompare(b.nextFollowUpDate || "9999-12-31");
+    });
+}
+
+function getStaleLeads(rows) {
+  return rows
+    .filter((row) => !row.closed && row.daysOpen >= 7)
+    .sort((a, b) => b.daysOpen - a.daysOpen);
+}
+
+function getDashboardAlerts(rows) {
+  const taskQueue = getTaskQueue(rows);
+  const staleLeads = getStaleLeads(rows);
+  const overdueTasks = taskQueue.filter((row) => row.taskOverdue);
+  const quotesAging = rows.filter((row) => row.status === "Quoted" && row.daysOpen >= 5 && !row.closed);
+  return {
+    overdueTasks,
+    staleLeads,
+    quotesAging
+  };
+}
+
 function getMonthlyTrendRows(rows, key, monthsBack = 6) {
   const months = [];
   const now = parseDate(todayIso()) || new Date();
@@ -905,6 +936,8 @@ function render() {
   const leaderboardRows = getRepLeaderboardRows(timeframeRows);
   const repSourceRows = getRepSourceRows(getUserScopedRows(timeframeRows));
   const repCommissionRows = getRepCommissionRows(getUserScopedRows(timeframeRows));
+  const taskQueueRows = getTaskQueue(getUserScopedRows(allRows));
+  const dashboardAlerts = getDashboardAlerts(getUserScopedRows(allRows));
   const activeOpportunity =
     state.opportunities.find((item) => item.id === state.ui.activeOpportunityId) ||
     blankOpportunity();
@@ -970,6 +1003,26 @@ function render() {
             </div>
           </div>
           ${renderBarChart(isAdmin() ? monthlyAgencyTrendRows : monthlyRepTrendRows, { valueFormatter: formatCompactCurrency })}
+        </article>
+      </div>
+      <div class="two-column">
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Urgent Attention Queue" : "My Action Queue"}</h3>
+              <p>${isAdmin() ? "Immediate follow-ups and stalled leads across the visible workspace." : "The next tasks that need your attention first."}</p>
+            </div>
+          </div>
+          ${renderTaskQueue(taskQueueRows)}
+        </article>
+        <article class="table-card">
+          <div class="panel-header">
+            <div>
+              <h3>${isAdmin() ? "Stale Pipeline Alerts" : "My Stale Lead Alerts"}</h3>
+              <p>${isAdmin() ? "Leads and quotes sitting too long without movement." : "Leads in your book that are at risk of going cold."}</p>
+            </div>
+          </div>
+          ${renderAlertsPanel(dashboardAlerts)}
         </article>
       </div>
       <div class="two-column">
@@ -1809,6 +1862,7 @@ function renderOpportunityBoard(phases) {
                         <span class="tag">${escapeHtml(row.assignedRepName)}</span>
                         <span class="tag">${escapeHtml(row.followUpBucket)}</span>
                       </div>
+                      ${row.nextTask ? `<div class="kanban-task-line"><strong>Next:</strong> ${escapeHtml(row.nextTask)}</div>` : ""}
                       <label class="kanban-stage-picker">
                         Stage
                         <select data-quick-status="${escapeHtml(row.id)}">
@@ -1882,6 +1936,65 @@ function renderCommissionList(rows) {
             <span>Earned ${formatCurrency(row.actualRepPayout)}</span>
             <span>Projected ${formatCurrency(row.potentialRepPayout)}</span>
           </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderTaskQueue(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state"><h3>No open tasks</h3><p>Once reps start setting next tasks and follow-up dates, the action queue will populate here.</p></div>`;
+  }
+  return `
+    <div class="task-queue">
+      ${rows.slice(0, 8).map((row) => `
+        <article class="task-card" data-select-opportunity="${escapeHtml(row.id)}">
+          <div class="task-card-top">
+            <strong>${escapeHtml(row.businessName)}</strong>
+            <span class="status-pill" data-tone="${row.taskOverdue ? "bad" : row.taskPriority === "High" ? "warn" : "good"}">${escapeHtml(row.taskPriority || "Medium")}</span>
+          </div>
+          <div class="subtle">${escapeHtml(row.assignedRepName)} · ${escapeHtml(row.status)}</div>
+          <p>${escapeHtml(row.nextTask || "No task entered")}</p>
+          <div class="task-card-meta">
+            <span>${escapeHtml(row.nextFollowUpDate || "No follow-up date")}</span>
+            <span>${row.taskOverdue ? "Overdue" : row.followUpBucket}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAlertsPanel(alerts) {
+  const items = [
+    ...alerts.overdueTasks.slice(0, 3).map((row) => ({
+      tone: "bad",
+      title: `${row.businessName} is overdue`,
+      detail: `${row.assignedRepName} has ${row.nextTask || "a follow-up"} due ${row.nextFollowUpDate || "now"}.`
+    })),
+    ...alerts.quotesAging.slice(0, 2).map((row) => ({
+      tone: "warn",
+      title: `${row.businessName} quote is aging`,
+      detail: `${row.daysOpen} days open in Quoted with ${formatCurrency(row.premiumQuoted)} still in play.`
+    })),
+    ...alerts.staleLeads.slice(0, 2).map((row) => ({
+      tone: "warn",
+      title: `${row.businessName} is getting stale`,
+      detail: `${row.daysOpen} days open in ${row.status}. Last activity ${row.lastActivityDate || "not logged"}.`
+    }))
+  ];
+
+  if (!items.length) {
+    return `<div class="empty-state"><h3>No active alerts</h3><p>The visible pipeline is in good shape right now.</p></div>`;
+  }
+
+  return `
+    <div class="alert-list">
+      ${items.map((item) => `
+        <article class="alert-card" data-tone="${item.tone}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <p>${escapeHtml(item.detail)}</p>
         </article>
       `).join("")}
     </div>
