@@ -16,6 +16,7 @@ const VERSION_CHECK_PATH = "/version.json";
 const WORKSPACE_TIMEOUT_MS = 10000;
 const VERSION_CHECK_INTERVAL_MS = 45000;
 const ATTACHMENTS_BUCKET = "opportunity-files";
+const ASSISTANT_FUNCTION_NAME = "claude-assistant";
 
 const seedSettings = {
   assumptions: {
@@ -108,6 +109,12 @@ const state = {
     importPreviewRows: [],
     importFileName: "",
     importingCsv: false
+    ,
+    assistantOpen: false,
+    assistantLoading: false,
+    assistantError: "",
+    assistantMessages: [],
+    assistantInput: ""
   }
 };
 
@@ -119,6 +126,7 @@ let workspaceLoadPromise = null;
 const appEl = document.getElementById("app");
 const heroActionsEl = document.getElementById("heroActions");
 const topNavEl = document.getElementById("topNav");
+const assistantRootEl = document.getElementById("assistantRoot");
 
 init();
 
@@ -1524,16 +1532,21 @@ function render() {
   document.body.classList.toggle("app-shell-logged-in", Boolean(state.session && !isInactiveUser()));
   heroActionsEl.innerHTML = renderHeroActions();
   topNavEl.innerHTML = renderTopNav();
+  if (assistantRootEl) {
+    assistantRootEl.innerHTML = renderAssistant();
+  }
 
   if (!SUPABASE_READY) {
     appEl.innerHTML = renderSetupRequired();
     bindShellEvents();
+    bindAppEvents();
     return;
   }
 
   if (state.ui.loading) {
     appEl.innerHTML = `<section class="panel"><div class="empty-state"><h3>Loading workspace</h3><p>Connecting to the shared agency database.</p></div></section>`;
     bindShellEvents();
+    bindAppEvents();
     return;
   }
 
@@ -1547,6 +1560,7 @@ function render() {
   if (isInactiveUser()) {
     appEl.innerHTML = renderInactiveUser();
     bindShellEvents();
+    bindAppEvents();
     return;
   }
 
@@ -2403,6 +2417,59 @@ function renderTopNav() {
       `
     )
     .join("");
+}
+
+function renderAssistant() {
+  if (!SUPABASE_READY || !state.session || isInactiveUser()) {
+    return "";
+  }
+
+  const activeOpportunity =
+    state.opportunities.find((item) => item.id === state.ui.activeOpportunityId) ||
+    null;
+
+  return `
+    <div class="assistant-shell ${state.ui.assistantOpen ? "is-open" : ""}">
+      ${state.ui.assistantOpen ? `
+        <section class="assistant-panel">
+          <header class="assistant-header">
+            <div>
+              <strong>Claude Assistant</strong>
+              <div class="subtle">${isAdmin() ? "Admin can ask across the agency." : "You can ask about your own leads and metrics."}</div>
+            </div>
+            <button class="button button-ghost assistant-close" id="assistantCloseButton" type="button">Close</button>
+          </header>
+          <div class="assistant-context">
+            <span class="tag">${isAdmin() ? "Admin scope" : "Rep scope"}</span>
+            ${activeOpportunity ? `<span class="tag">Focused lead: ${escapeHtml(activeOpportunity.businessName || activeOpportunity.leadNumber)}</span>` : `<span class="tag">Workspace scope</span>`}
+          </div>
+          <div class="assistant-messages">
+            ${state.ui.assistantMessages.length ? state.ui.assistantMessages.map((message) => `
+              <article class="assistant-message ${message.role === "user" ? "is-user" : "is-assistant"}">
+                <strong>${message.role === "user" ? "You" : "Claude"}</strong>
+                <p>${escapeHtml(message.content)}</p>
+              </article>
+            `).join("") : `
+              <div class="empty-state assistant-empty">
+                <h3>Ask Claude about the book</h3>
+                <p>${isAdmin() ? "Try: Which reps have the most stale leads, what renewals are due next, or which source is performing best?" : "Try: What should I work first, which leads are overdue, or what renewals are coming due in my book?"}</p>
+              </div>
+            `}
+          </div>
+          ${state.ui.assistantError ? `<p class="error-banner">${escapeHtml(state.ui.assistantError)}</p>` : ""}
+          <form id="assistantForm" class="assistant-form">
+            <textarea id="assistantInput" placeholder="Ask about leads, metrics, renewals, attachments, or appointments...">${escapeHtml(state.ui.assistantInput)}</textarea>
+            <div class="assistant-actions">
+              <button class="button button-primary" type="submit" ${state.ui.assistantLoading ? "disabled" : ""}>${state.ui.assistantLoading ? "Thinking..." : "Ask Claude"}</button>
+            </div>
+          </form>
+        </section>
+      ` : ""}
+      <button class="assistant-bubble button button-primary" id="assistantBubbleButton" type="button">
+        ${state.ui.assistantOpen ? "Hide Claude" : "Ask Claude"}
+      </button>
+    </div>
+  `;
 }
 
 function renderSetupRequired() {
@@ -3344,6 +3411,45 @@ function bindShellEvents() {
 }
 
 function bindAppEvents() {
+  const assistantBubbleButton = document.getElementById("assistantBubbleButton");
+  if (assistantBubbleButton) {
+    assistantBubbleButton.addEventListener("click", () => {
+      state.ui.assistantOpen = !state.ui.assistantOpen;
+      state.ui.assistantError = "";
+      render();
+    });
+  }
+
+  const assistantCloseButton = document.getElementById("assistantCloseButton");
+  if (assistantCloseButton) {
+    assistantCloseButton.addEventListener("click", () => {
+      state.ui.assistantOpen = false;
+      state.ui.assistantError = "";
+      render();
+    });
+  }
+
+  const assistantForm = document.getElementById("assistantForm");
+  if (assistantForm) {
+    assistantForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("assistantInput");
+      const question = String(input?.value || "").trim();
+      if (!question) {
+        state.ui.assistantError = "Type a question first.";
+        render();
+        return;
+      }
+      state.ui.assistantInput = question;
+      try {
+        await askClaudeAssistant(question);
+      } catch (error) {
+        state.ui.assistantError = error.message || "Claude could not answer right now.";
+        render();
+      }
+    });
+  }
+
   const timeframeSelect = document.getElementById("timeframeSelect");
   if (timeframeSelect) {
     timeframeSelect.addEventListener("change", (event) => {
@@ -4099,6 +4205,58 @@ async function saveCommunicationActivity({ opportunityId, activityType, outcome,
 
   state.ui.notice = `${cleanActivityType} logged for ${opportunity.businessName}.`;
   await loadWorkspace();
+}
+
+async function askClaudeAssistant(question) {
+  if (!state.supabase) {
+    throw new Error("Assistant backend is not ready.");
+  }
+
+  const {
+    data: { session }
+  } = await state.supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Sign in again before using Claude.");
+  }
+
+  state.ui.assistantLoading = true;
+  state.ui.assistantError = "";
+  state.ui.assistantMessages = [
+    ...state.ui.assistantMessages,
+    { role: "user", content: question }
+  ];
+  render();
+
+  try {
+    const activeOpportunity = state.opportunities.find((item) => item.id === state.ui.activeOpportunityId);
+    const response = await fetch(`${APP_CONFIG.supabaseUrl}/functions/v1/${ASSISTANT_FUNCTION_NAME}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: APP_CONFIG.supabaseAnonKey,
+        Authorization: `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        question,
+        activeOpportunityId: activeOpportunity?.id || null,
+        history: state.ui.assistantMessages.slice(-8)
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || "Claude could not answer right now.");
+    }
+
+    state.ui.assistantMessages = [
+      ...state.ui.assistantMessages,
+      { role: "assistant", content: String(payload.answer || "No answer returned.") }
+    ];
+    state.ui.assistantInput = "";
+  } finally {
+    state.ui.assistantLoading = false;
+    render();
+  }
 }
 
 async function openOpportunityAttachment(attachmentId) {

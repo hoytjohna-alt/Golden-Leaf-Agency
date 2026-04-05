@@ -134,6 +134,53 @@ The SQL schema enforces:
 - profile role and active-status management inside the app
 - password reset request from the login screen
 
+## Claude assistant setup
+
+The app now includes a floating Claude chat assistant for logged-in users.
+
+Security model:
+
+- the Anthropic API key stays server-side
+- reps only get data they can already access through Supabase RLS
+- admins can ask agency-wide questions
+
+### 1. Set Supabase function secrets
+
+In Supabase, add these secrets for Edge Functions:
+
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL`
+
+Suggested model:
+
+- `claude-sonnet-4-20250514`
+
+### 2. Deploy the Edge Function
+
+Deploy:
+
+- `supabase/functions/claude-assistant/index.ts`
+
+Function name:
+
+- `claude-assistant`
+
+### 3. Keep frontend env vars the same
+
+The frontend still only needs:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_APP_URL`
+
+No Anthropic key should ever be added to Render frontend env vars.
+
+### 4. Use the assistant
+
+- admins can ask about agency metrics, renewals, pipeline, producers, and lead activity
+- reps can ask only about their own scoped data
+- if a lead is open in the workspace, the assistant also gets that lead as focused context
+
 ## Recommended next improvements
 
 - admin invite flow inside the app
