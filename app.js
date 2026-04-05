@@ -98,6 +98,8 @@ const state = {
 };
 
 let versionCheckTimer = null;
+let dragAutoScrollVelocity = 0;
+let dragAutoScrollFrame = null;
 
 const appEl = document.getElementById("app");
 const heroActionsEl = document.getElementById("heroActions");
@@ -230,6 +232,44 @@ function resetTransientUiState() {
   state.ui.activeOpportunityId = null;
   state.ui.bulkAssignUserId = "";
   state.ui.selectedOpportunityIds = [];
+}
+
+function stopDragAutoScroll() {
+  dragAutoScrollVelocity = 0;
+  if (dragAutoScrollFrame) {
+    window.cancelAnimationFrame(dragAutoScrollFrame);
+    dragAutoScrollFrame = null;
+  }
+}
+
+function runDragAutoScroll() {
+  if (!dragAutoScrollVelocity) {
+    dragAutoScrollFrame = null;
+    return;
+  }
+  window.scrollBy(0, dragAutoScrollVelocity);
+  dragAutoScrollFrame = window.requestAnimationFrame(runDragAutoScroll);
+}
+
+function updateDragAutoScroll(pointerY) {
+  const edgeThreshold = 120;
+  const maxVelocity = 18;
+  const viewportHeight = window.innerHeight;
+  let nextVelocity = 0;
+
+  if (pointerY < edgeThreshold) {
+    nextVelocity = -Math.max(6, ((edgeThreshold - pointerY) / edgeThreshold) * maxVelocity);
+  } else if (pointerY > viewportHeight - edgeThreshold) {
+    nextVelocity = Math.max(6, ((pointerY - (viewportHeight - edgeThreshold)) / edgeThreshold) * maxVelocity);
+  }
+
+  dragAutoScrollVelocity = nextVelocity;
+  if (dragAutoScrollVelocity && !dragAutoScrollFrame) {
+    dragAutoScrollFrame = window.requestAnimationFrame(runDragAutoScroll);
+  }
+  if (!dragAutoScrollVelocity) {
+    stopDragAutoScroll();
+  }
 }
 
 function setupVersionWatchers() {
@@ -1241,11 +1281,8 @@ function render() {
         </div>
       ` : ""}
       ${state.ui.opportunityTab === "stage" ? `
-        <div class="opportunity-stage-layout">
-          <div class="table-card board-host">
-            ${renderOpportunityBoard(pipelinePhaseGroups)}
-          </div>
-          ${renderStageWorkspace(activeOpportunity, activeOpportunityTimeline)}
+        <div class="table-card board-host">
+          ${renderOpportunityBoard(pipelinePhaseGroups)}
         </div>
       ` : ""}
     </section>
@@ -1890,66 +1927,6 @@ function renderCreateLeadWorkspace() {
   `;
 }
 
-function renderStageWorkspace(row, timeline) {
-  if (!row.id) {
-    return `
-      <article class="table-card lead-workspace-panel stage-workspace-panel">
-        <div class="panel-header">
-          <div>
-            <h3>Stage Movement Focus</h3>
-            <p>Select a lead card to review its current status and recent activity.</p>
-          </div>
-        </div>
-        <div class="empty-state">
-          <h3>Pick a lead from the board</h3>
-          <p>Drag it between stages or use the stage selector on the card, then review the timeline here.</p>
-        </div>
-      </article>
-    `;
-  }
-
-  return `
-    <article class="table-card lead-workspace-panel stage-workspace-panel">
-      <div class="panel-header">
-        <div>
-          <h3>${escapeHtml(row.businessName || "Selected Lead")}</h3>
-          <p>${escapeHtml(row.leadNumber)} · ${escapeHtml(row.assignedRepName || "Unassigned")}</p>
-        </div>
-        <span class="pill">${escapeHtml(row.status)}</span>
-      </div>
-      <div class="workspace-overview-grid">
-        <article class="mini-card">
-          <h3>Next Task</h3>
-          <strong>${escapeHtml(row.nextTask || "Not set")}</strong>
-          <div class="stat-meta">${escapeHtml(row.nextFollowUpDate || "No follow-up date")}</div>
-        </article>
-        <article class="mini-card">
-          <h3>Last Activity</h3>
-          <strong>${escapeHtml(row.lastActivityDate || "Not logged")}</strong>
-          <div class="stat-meta">${row.daysOpen} days open</div>
-        </article>
-        <article class="mini-card">
-          <h3>Quoted Premium</h3>
-          <strong>${formatCurrency(row.premiumQuoted)}</strong>
-          <div class="stat-meta">${escapeHtml(row.carrier || "No carrier")}</div>
-        </article>
-        <article class="mini-card">
-          <h3>Bound Premium</h3>
-          <strong>${formatCurrency(row.premiumBound)}</strong>
-          <div class="stat-meta">${escapeHtml(row.policyType || "Policy type not set")}</div>
-        </article>
-      </div>
-      <div class="workspace-form-section">
-        <div class="workspace-section-header">
-          <h4>Recent Activity</h4>
-          <p>Keep an eye on the latest movement without leaving the board.</p>
-        </div>
-        ${renderOpportunityTimeline(row, timeline)}
-      </div>
-    </article>
-  `;
-}
-
 function renderOpportunityTimeline(row, timeline) {
   if (!row.id) {
     return `<div class="empty-state"><h3>Create the lead first</h3><p>Once the record exists, status changes, notes, and assignments will appear here.</p></div>`;
@@ -2525,7 +2502,7 @@ function bindAppEvents() {
     card.addEventListener("click", () => {
       state.ui.activeOpportunityId = card.dataset.openOpportunity;
       state.ui.activeTab = "opportunities";
-      state.ui.opportunityTab = "stage";
+      state.ui.opportunityTab = "update";
       render();
     });
   });
@@ -2549,19 +2526,31 @@ function bindAppEvents() {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", card.dataset.cardDrag);
     });
+    card.addEventListener("dragend", () => {
+      stopDragAutoScroll();
+    });
   });
+
+  document.removeEventListener("dragover", handleDragAutoScroll);
+  document.removeEventListener("drop", stopDragAutoScroll);
+  document.removeEventListener("dragend", stopDragAutoScroll);
+  document.addEventListener("dragover", handleDragAutoScroll);
+  document.addEventListener("drop", stopDragAutoScroll);
+  document.addEventListener("dragend", stopDragAutoScroll);
 
   document.querySelectorAll("[data-stage-drop]").forEach((column) => {
     column.addEventListener("dragover", (event) => {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
       column.classList.add("is-drop-target");
+      updateDragAutoScroll(event.clientY);
     });
     column.addEventListener("dragleave", () => {
       column.classList.remove("is-drop-target");
     });
     column.addEventListener("drop", async (event) => {
       event.preventDefault();
+      stopDragAutoScroll();
       column.classList.remove("is-drop-target");
       const opportunityId = event.dataTransfer.getData("text/plain");
       const nextStatus = column.dataset.stageDrop;
@@ -2822,6 +2811,10 @@ function bindAppEvents() {
       await persistSettings();
     });
   });
+}
+
+function handleDragAutoScroll(event) {
+  updateDragAutoScroll(event.clientY);
 }
 
 async function saveOpportunity(formData) {
