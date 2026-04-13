@@ -8,7 +8,7 @@ export default defineConfig({
   },
   plugins: [
     {
-      name: "golden-leaf-build-version",
+      name: "agency-os-build-version",
       generateBundle() {
         this.emitFile({
           type: "asset",

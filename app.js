@@ -8,9 +8,9 @@ const APP_CONFIG = {
 };
 const SUPABASE_READY = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
 const APP_BUILD_ID = typeof __APP_BUILD_ID__ !== "undefined" ? __APP_BUILD_ID__ : "v1";
-const APP_BUILD_STORAGE_KEY = "golden-leaf-app-build-id";
-const APP_RECOVERY_STORAGE_KEY = "golden-leaf-app-recovery-build-id";
-const AUTH_STORAGE_PREFIX = "golden-leaf-auth";
+const APP_BUILD_STORAGE_KEY = "agency-os-app-build-id";
+const APP_RECOVERY_STORAGE_KEY = "agency-os-app-recovery-build-id";
+const AUTH_STORAGE_PREFIX = "agency-os-auth";
 const AUTH_STORAGE_KEY = AUTH_STORAGE_PREFIX;
 const VERSION_CHECK_PATH = "/version.json";
 const WORKSPACE_TIMEOUT_MS = 10000;
@@ -43,9 +43,9 @@ const seedSettings = {
     sourceRules: []
   },
   communicationSettings: {
-    emailSubjectTemplate: "{{businessName}} follow-up from Golden Leaf Agency",
-    emailBodyTemplate: "Hi {{contactName}},\n\nThis is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}\n\nYou can reply here if you have questions.\n\nThanks,\n{{repName}}",
-    smsBodyTemplate: "Hi {{contactName}}, this is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}",
+    emailSubjectTemplate: "{{businessName}} follow-up from our agency",
+    emailBodyTemplate: "Hi {{contactName}},\n\nThis is {{repName}} following up on {{businessName}}. {{nextTaskSentence}}\n\nYou can reply here if you have questions.\n\nThanks,\n{{repName}}",
+    smsBodyTemplate: "Hi {{contactName}}, this is {{repName}} following up on {{businessName}}. {{nextTaskSentence}}",
     replyToEmail: ""
   },
   leadSources: [
@@ -99,7 +99,7 @@ const HELP_CENTER_CONTENT = {
       ],
       questions: [
         "Walk me through launching this app with a new agency team.",
-        "What should the owner set up first in Golden Leaf Agency HQ?"
+        "What should the owner set up first in this platform?"
       ]
     },
     {
@@ -1360,7 +1360,7 @@ function downloadLeadImportTemplate() {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.json_to_sheet(templateRows);
   XLSX.utils.book_append_sheet(workbook, sheet, "Lead Import Template");
-  XLSX.writeFile(workbook, "golden-leaf-lead-import-template.csv", { bookType: "csv" });
+  XLSX.writeFile(workbook, "agency-lead-import-template.csv", { bookType: "csv" });
 }
 
 function downloadDemoLeadImportFile() {
@@ -1567,7 +1567,7 @@ function downloadDemoLeadImportFile() {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.json_to_sheet(demoRows);
   XLSX.utils.book_append_sheet(workbook, sheet, "Demo Leads");
-  XLSX.writeFile(workbook, "golden-leaf-demo-leads.csv", { bookType: "csv" });
+  XLSX.writeFile(workbook, "agency-demo-leads.csv", { bookType: "csv" });
 }
 
 async function importLeadPreviewRows() {
@@ -5693,13 +5693,13 @@ function exportAgencyWorkbook() {
 
   const workbook = XLSX.utils.book_new();
   workbook.Props = {
-    Title: "Golden Leaf Agency Workbook",
+    Title: "Agency Operating Workbook",
     Subject: "Agency operating workbook export",
-    Author: "Golden Leaf Agency HQ"
+    Author: "Agency Operating System"
   };
 
   const instructionsSheet = XLSX.utils.aoa_to_sheet([
-    ["Golden Leaf Agency Workbook Export"],
+    ["Agency Operating Workbook Export"],
     ["Generated", new Date().toLocaleString("en-US")],
     [""],
     ["Tabs included in this export mirror the original workbook structure."],
@@ -5849,7 +5849,7 @@ function exportAgencyWorkbook() {
   XLSX.utils.book_append_sheet(workbook, coachingSheet, "Weekly Coaching");
   XLSX.utils.book_append_sheet(workbook, checklistSheet, "Checklists");
 
-  XLSX.writeFile(workbook, `Golden-Leaf-Agency-Workbook-${todayIso()}.xlsx`);
+  XLSX.writeFile(workbook, `Agency-Operating-Workbook-${todayIso()}.xlsx`);
   state.ui.notice = "Workbook exported.";
   state.ui.error = "";
   render();

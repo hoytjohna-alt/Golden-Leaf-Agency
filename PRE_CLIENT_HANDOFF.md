@@ -1,6 +1,6 @@
 # Pre-Client Handoff Checklist
 
-Use this checklist before showing Golden Leaf Agency HQ to a client or rolling it out to a live agency team.
+Use this checklist before showing the platform to a client or rolling it out to a live agency team.
 
 ## Handoff Summary
 

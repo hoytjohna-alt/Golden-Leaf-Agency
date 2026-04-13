@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: golden-leaf-agency-hq
+    name: agency-operating-system
     runtime: static
     buildCommand: npm install && npm run build
     staticPublishPath: dist

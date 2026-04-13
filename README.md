@@ -1,4 +1,4 @@
-# Golden Leaf Agency HQ
+# Agency Operating System
 
 This app is now set up for:
 
@@ -227,7 +227,7 @@ Add these secrets in Supabase Edge Functions:
 
 `APP_URL` should be your live Render URL, for example:
 
-- `https://golden-leaf-agency-hq.onrender.com`
+- `https://your-app-name.onrender.com`
 
 ### Functions to deploy
 

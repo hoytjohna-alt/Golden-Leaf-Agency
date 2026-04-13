@@ -204,9 +204,9 @@ values (
     "sourceRules": []
   }'::jsonb,
   '{
-    "emailSubjectTemplate": "{{businessName}} follow-up from Golden Leaf Agency",
-    "emailBodyTemplate": "Hi {{contactName}},\n\nThis is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}\n\nYou can reply here if you have questions.\n\nThanks,\n{{repName}}",
-    "smsBodyTemplate": "Hi {{contactName}}, this is {{repName}} from Golden Leaf Agency following up on {{businessName}}. {{nextTaskSentence}}",
+    "emailSubjectTemplate": "{{businessName}} follow-up from our agency",
+    "emailBodyTemplate": "Hi {{contactName}},\n\nThis is {{repName}} following up on {{businessName}}. {{nextTaskSentence}}\n\nYou can reply here if you have questions.\n\nThanks,\n{{repName}}",
+    "smsBodyTemplate": "Hi {{contactName}}, this is {{repName}} following up on {{businessName}}. {{nextTaskSentence}}",
     "replyToEmail": ""
   }'::jsonb,
   '["Purchased Leads","Warm Transfer","Referral","Website / Organic","Partner / Network","Recycled Lead","Self-Generated"]'::jsonb,
